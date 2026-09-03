@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hosteller Profile · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <a class="btn btn-outline btn-sm" href="students.html">&larr; Back to Hostellers</a>
+      </div>
+
+      <div id="notFound" style="display:none" class="empty-state">
+        <p>Hosteller record not found.</p>
+      </div>
+
+      <div id="pageBody" style="display:none">
+        <div class="profile-header">
+          <div class="profile-avatar" id="pAvatar"></div>
+          <div>
+            <h2 id="pName" style="font-size:20px"></h2>
+            <p class="desc" id="pMeta"></p>
+          </div>
+          <span class="status-pill" id="pStatus" style="margin-left:auto"></span>
+        </div>
+
+        <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+        <div id="tabsMount"></div>
+        <div id="tabPanels"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("students", "read")) {
+  App.renderShell({ active: "students", title: "Hosteller Profile", subtitle: "Full master record & activity" });
+
+  var params = new URLSearchParams(window.location.search);
+  var studentId = params.get("id");
+  var student = Data.getStudents().find(function (s) { return s.id === studentId; });
+
+  if (!student) {
+    document.getElementById("notFound").style.display = "flex";
+  } else {
+    document.getElementById("pageBody").style.display = "block";
+    var room = Data.getRooms().find(function (r) { return r.id === student.roomId; });
+
+    document.getElementById("pAvatar").textContent = App.initials(student.name);
+    document.getElementById("pName").textContent = student.name;
+    document.getElementById("pMeta").textContent = student.regNo + " · " + student.course + " · Year " + student.year + (room ? " · Room " + room.roomNumber : " · No room assigned");
+    document.getElementById("pStatus").textContent = student.status;
+    document.getElementById("pStatus").className = "status-pill " + student.status;
+
+    var feeSummary = Business.getFeeSummary(student.id);
+    var advanceBalance = Business.getAdvanceBalance(student.id);
+    var currentStatus = Business.getCurrentStatus(student.id);
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("inout") + '</div><div><div class="stat-value" style="text-transform:capitalize">' + currentStatus + '</div><div class="stat-label">Current status</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("receipt") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(feeSummary.paid) + '</div><div class="stat-label">Fees paid</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(feeSummary.due) + '</div><div class="stat-label">Fees due</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(advanceBalance) + '</div><div class="stat-label">Advance balance</div></div></div>';
+
+    var TABS = [
+      { key: "overview", label: "Overview" },
+      { key: "inout", label: "In / Out Log" },
+      { key: "fees", label: "Fees & Advance" },
+      { key: "travel", label: "Travel" },
+      { key: "outpass", label: "Outpass" }
+    ];
+    var activeTab = "overview";
+
+    function renderTabs() {
+      document.getElementById("tabsMount").innerHTML = '<div class="page-tabs">' + TABS.map(function (t) {
+        return '<button type="button" class="page-tab' + (t.key === activeTab ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>';
+      }).join("") + '</div>';
+      document.querySelectorAll("[data-tab]").forEach(function (btn) {
+        btn.addEventListener("click", function () { activeTab = btn.getAttribute("data-tab"); renderTabs(); renderPanel(); });
+      });
+    }
+
+    function emptyRow(msg) { return '<div class="empty-state compact">' + App.svg("fileText") + '<p>' + msg + '</p></div>'; }
+
+    function renderOverview() {
+      return '<div class="detail-grid">' +
+        '<div class="detail-card"><div class="detail-card-header">Personal Details</div><div class="detail-rows">' +
+          '<div class="detail-row"><span>Blood Group</span><strong>' + student.bloodGroup + '</strong></div>' +
+          '<div class="detail-row"><span>Admission Date</span><strong>' + Data.displayDate(student.admissionDate) + '</strong></div>' +
+          '<div class="detail-row"><span>Address</span><strong>' + (student.address || "-") + '</strong></div>' +
+          '<div class="detail-row"><span>Room</span><strong>' + (room ? room.roomNumber + " (" + room.block + " block, " + room.type + ")" : "Unassigned") + '</strong></div>' +
+        '</div></div>' +
+        '<div class="detail-card"><div class="detail-card-header">Guardian Details</div><div class="detail-rows">' +
+          '<div class="detail-row"><span>Name</span><strong>' + (student.guardianName || "-") + '</strong></div>' +
+          '<div class="detail-row"><span>Phone</span><strong>' + (student.guardianPhone || "-") + '</strong></div>' +
+          '<div class="detail-row"><span>Course</span><strong>' + student.course + '</strong></div>' +
+          '<div class="detail-row"><span>Year</span><strong>Year ' + student.year + '</strong></div>' +
+        '</div></div>' +
+      '</div>';
+    }
+
+    function renderInOut() {
+      var logs = Data.getStudentInOut().filter(function (l) { return l.studentId === student.id; })
+        .sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+      if (!logs.length) return '<div class="panel">' + emptyRow("No in/out activity recorded yet.") + '</div>';
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Direction</th><th>Date & Time</th><th>Reason</th></tr></thead><tbody>' +
+        logs.map(function (l) {
+          return '<tr><td><span class="status-pill ' + l.direction + '">' + l.direction + '</span></td><td>' + Data.displayDateTime(l.timestamp) + '</td><td>' + (l.reason || "-") + '</td></tr>';
+        }).join("") + '</tbody></table></div></div>';
+    }
+
+    function renderFees() {
+      var ledger = feeSummary.ledger.slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+      var advances = Data.getAdvances().filter(function (a) { return a.studentId === student.id; });
+      var html = '<div class="panel-grid even">';
+      html += '<div class="panel"><div class="panel-header"><h3>Fee Ledger</h3><span class="panel-tag">' + feeSummary.status + '</span></div>';
+      html += ledger.length ? '<div class="table-scroll"><table class="data-table"><thead><tr><th>Type</th><th>Date</th><th>Mode</th><th>Receipt</th><th class="num">Amount</th></tr></thead><tbody>' +
+        ledger.map(function (l) {
+          return '<tr><td><span class="chip ' + (l.type === "invoice" ? "chip-slate" : "chip-green") + '">' + l.type + '</span></td><td>' + Data.displayDate(l.date) + '</td><td>' + (l.mode || "-") + '</td><td class="cell-mono">' + (l.receiptNo || "-") + '</td><td class="num num-strong">₹' + l.amount.toLocaleString("en-IN") + '</td></tr>';
+        }).join("") + '</tbody></table></div>' : emptyRow("No fee records yet.");
+      html += '</div>';
+      html += '<div class="panel"><div class="panel-header"><h3>Advances</h3><span class="panel-tag">₹' + advanceBalance.toLocaleString("en-IN") + '</span></div>';
+      html += advances.length ? '<div class="activity-list">' + advances.map(function (a) {
+        return '<div class="activity-item"><div class="activity-dot"></div><div><p><strong>₹' + a.amount.toLocaleString("en-IN") + '</strong> — ' + a.purpose + '</p><span>' + Data.displayDate(a.date) + ' · Balance ₹' + a.balance.toLocaleString("en-IN") + '</span></div></div>';
+      }).join("") : emptyRow("No advances recorded.");
+      html += '</div></div>';
+      return html;
+    }
+
+    function renderTravel() {
+      var travel = Data.getTravel().filter(function (t) { return t.studentId === student.id; }).sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+      if (!travel.length) return '<div class="panel">' + emptyRow("No travel records yet.") + '</div>';
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Type</th><th>Date</th><th>Expected Return</th><th>Mode</th><th>Notes</th></tr></thead><tbody>' +
+        travel.map(function (t) {
+          return '<tr><td><span class="chip ' + (t.type === "home" ? "chip-amber" : "chip-green") + '">' + t.type + '</span></td><td>' + Data.displayDate(t.date) + '</td><td>' + (t.expectedReturnDate ? Data.displayDate(t.expectedReturnDate) : "-") + '</td><td>' + t.mode + '</td><td>' + (t.notes || "-") + '</td></tr>';
+        }).join("") + '</tbody></table></div></div>';
+    }
+
+    function renderOutpass() {
+      var list = Data.getOutpass().filter(function (o) { return o.studentId === student.id; }).sort(function (a, b) { return new Date(b.fromDatetime) - new Date(a.fromDatetime); });
+      if (!list.length) return '<div class="panel">' + emptyRow("No outpass requests yet.") + '</div>';
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Reason</th><th>From</th><th>To</th><th>Status</th><th>Approved By</th></tr></thead><tbody>' +
+        list.map(function (o) {
+          return '<tr><td>' + o.reason + '</td><td>' + Data.displayDateTime(o.fromDatetime) + '</td><td>' + Data.displayDateTime(o.toDatetime) + '</td><td><span class="status-pill ' + o.status + '">' + o.status + '</span></td><td>' + (o.approvedBy || "-") + '</td></tr>';
+        }).join("") + '</tbody></table></div></div>';
+    }
+
+    function renderPanel() {
+      var map = { overview: renderOverview, inout: renderInOut, fees: renderFees, travel: renderTravel, outpass: renderOutpass };
+      document.getElementById("tabPanels").innerHTML = map[activeTab]();
+    }
+
+    renderTabs();
+    renderPanel();
+  }
+  }
+</script>
+</body>
+</html>

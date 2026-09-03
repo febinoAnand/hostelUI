@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Outpass · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Outpass</h2>
+          <p class="desc">Hostel-wide outpass requests, approvals and returns.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="outpass:create">+ New Outpass</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by hosteller or reason...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="statusFilter">
+              <option value="">All status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="returned">Returned</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Hosteller</th><th>Reason</th><th>From</th><th>To</th><th>Status</th><th>Approver</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="opModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>New Outpass Request</h3>
+      <button class="modal-close" id="opModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="opForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Hosteller *</label><select id="fStudent" required></select></div>
+          <div class="field span-2"><label>Reason *</label><input type="text" id="fReason" required placeholder="e.g. Family function"></div>
+          <div class="field"><label>From *</label><input type="datetime-local" id="fFrom" required></div>
+          <div class="field"><label>To *</label><input type="datetime-local" id="fTo" required></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="opCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="opSaveBtn">Submit Request</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("outpass", "read")) {
+  App.renderShell({ active: "outpass", title: "Outpass", subtitle: "Requests, approvals and returns" });
+
+  var canUpdate = App.can("outpass", "update");
+  var searchTerm = "", statusFilterVal = "";
+
+  function studentOptionsHtml() {
+    var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
+    return students.map(function (s) { return '<option value="' + s.id + '">' + s.name + ' (' + s.regNo + ')</option>'; }).join("");
+  }
+
+  function render() {
+    var stats = Business.getOutpassStats();
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + stats.pending + '</div><div class="stat-label">Pending</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + stats.approved + '</div><div class="stat-label">Approved</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + stats.rejected + '</div><div class="stat-label">Rejected</div></div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("door") + '</div><div><div class="stat-value">' + stats.returned + '</div><div class="stat-label">Returned</div></div></div>';
+
+    var students = Data.getStudents();
+    var rooms = Data.getRooms();
+    var list = Data.getOutpass();
+    var q = searchTerm.toLowerCase();
+    var filtered = list.filter(function (o) {
+      var s = students.find(function (x) { return x.id === o.studentId; });
+      var matchesSearch = !q || (s && s.name.toLowerCase().indexOf(q) > -1) || o.reason.toLowerCase().indexOf(q) > -1;
+      var matchesStatus = !statusFilterVal || o.status === statusFilterVal;
+      return matchesSearch && matchesStatus;
+    }).sort(function (a, b) { return new Date(b.fromDatetime) - new Date(a.fromDatetime); });
+
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + list.length + " outpasses";
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("door") + '<p>No outpass requests found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (o) {
+        var s = students.find(function (x) { return x.id === o.studentId; });
+        var room = s ? rooms.find(function (r) { return r.id === s.roomId; }) : null;
+        var actions = "-";
+        if (canUpdate && o.status === "pending") {
+          actions = '<button class="btn btn-sm btn-success" data-approve="' + o.id + '">Approve</button> <button class="btn btn-sm btn-danger-outline" data-reject="' + o.id + '">Reject</button>';
+        } else if (canUpdate && o.status === "approved") {
+          actions = '<button class="btn btn-sm btn-outline" data-return="' + o.id + '">Mark Returned</button>';
+        }
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong><span>' + (room ? room.roomNumber : "") + '</span></div></div></td>' +
+          '<td>' + o.reason + '</td>' +
+          '<td>' + Data.displayDateTime(o.fromDatetime) + '</td>' +
+          '<td>' + Data.displayDateTime(o.toDatetime) + '</td>' +
+          '<td><span class="status-pill ' + o.status + '">' + o.status + '</span></td>' +
+          '<td>' + (o.approvedBy || "-") + '</td>' +
+          '<td class="row-actions" style="text-align:left;white-space:nowrap">' + actions + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var approveBtn = e.target.closest("[data-approve]");
+    var rejectBtn = e.target.closest("[data-reject]");
+    var returnBtn = e.target.closest("[data-return]");
+    if (!approveBtn && !rejectBtn && !returnBtn) return;
+    var list = Data.getOutpass();
+    if (approveBtn) {
+      var id = approveBtn.getAttribute("data-approve");
+      list = list.map(function (o) { return o.id === id ? Object.assign({}, o, { status: "approved", approvedBy: App.getCurrentUser().name }) : o; });
+      Data.saveOutpass(list);
+      App.showToast("Outpass approved.");
+    } else if (rejectBtn) {
+      var rid = rejectBtn.getAttribute("data-reject");
+      list = list.map(function (o) { return o.id === rid ? Object.assign({}, o, { status: "rejected", approvedBy: App.getCurrentUser().name }) : o; });
+      Data.saveOutpass(list);
+      App.showToast("Outpass rejected.");
+    } else if (returnBtn) {
+      var tid = returnBtn.getAttribute("data-return");
+      list = list.map(function (o) { return o.id === tid ? Object.assign({}, o, { status: "returned" }) : o; });
+      Data.saveOutpass(list);
+      App.showToast("Outpass marked returned.");
+    }
+    render();
+  });
+
+  /* ---------------- New Outpass modal ---------------- */
+  var modal = document.getElementById("opModal");
+  function openModal() {
+    document.getElementById("opForm").reset();
+    document.getElementById("fStudent").innerHTML = studentOptionsHtml();
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("opModalClose").addEventListener("click", closeModal);
+  document.getElementById("opCancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("opSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("opForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var list = Data.getOutpass();
+    list.push({
+      id: Data.uid("op"), studentId: document.getElementById("fStudent").value,
+      reason: document.getElementById("fReason").value.trim(),
+      fromDatetime: document.getElementById("fFrom").value,
+      toDatetime: document.getElementById("fTo").value,
+      status: "pending", approvedBy: ""
+    });
+    Data.saveOutpass(list);
+    App.showToast("Outpass request submitted.");
+    closeModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

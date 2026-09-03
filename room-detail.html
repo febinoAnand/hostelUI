@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Room Detail · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <a class="btn btn-outline btn-sm" href="rooms.html">&larr; Back to Rooms</a>
+      </div>
+
+      <div id="notFound" style="display:none" class="empty-state">
+        <p>Room record not found.</p>
+      </div>
+
+      <div id="pageBody" style="display:none">
+        <div class="profile-header">
+          <div class="profile-avatar" id="pAvatar"></div>
+          <div>
+            <h2 id="pName" style="font-size:20px"></h2>
+            <p class="desc" id="pMeta"></p>
+          </div>
+          <span class="status-pill" id="pStatus" style="margin-left:auto"></span>
+        </div>
+
+        <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+        <div class="panel-grid even">
+          <div class="detail-card">
+            <div class="detail-card-header">Current Occupants</div>
+            <div id="occupantsBody"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>Electricity Bill Share</h3><span class="panel-tag" id="ebPeriodTag"></span></div>
+            <div id="ebBody"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("rooms", "read")) {
+  App.renderShell({ active: "rooms", title: "Room Detail", subtitle: "Occupancy & electricity bill share" });
+
+  var params = new URLSearchParams(window.location.search);
+  var roomId = params.get("id");
+  var room = Data.getRooms().find(function (r) { return r.id === roomId; });
+
+  if (!room) {
+    document.getElementById("notFound").style.display = "flex";
+  } else {
+    document.getElementById("pageBody").style.display = "block";
+    var students = Data.getStudents();
+    var occupants = room.occupantIds.map(function (id) {
+      return students.find(function (s) { return s.id === id; });
+    }).filter(Boolean);
+    var status = Business.getRoomStatus(room);
+
+    document.getElementById("pAvatar").innerHTML = App.svg("bed", "").replace("<svg ", '<svg style="width:28px;height:28px" ');
+    document.getElementById("pName").textContent = room.roomNumber;
+    document.getElementById("pMeta").textContent = "Block " + room.block + " · Floor " + room.floor + " · " + room.type + " · Capacity " + room.capacity;
+    document.getElementById("pStatus").textContent = status;
+    document.getElementById("pStatus").className = "status-pill " + status;
+
+    /* ---------------- Most recent EB bill period for this block ---------------- */
+    var blockBills = Data.getEBBills().filter(function (b) { return b.block === room.block; })
+      .sort(function (a, b) { return b.period.localeCompare(a.period); });
+    var latestPeriod = blockBills.length ? blockBills[0].period : null;
+    var ebShare = latestPeriod ? Business.getEBShareForBlock(room.block, latestPeriod) : { bill: null, shares: [] };
+    var myShare = ebShare.shares.find(function (s) { return s.room.id === room.id; });
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("users") + '</div><div><div class="stat-value">' + room.occupantIds.length + '/' + room.capacity + '</div><div class="stat-label">Occupancy</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("bed") + '</div><div><div class="stat-value"><span class="status-pill ' + status + '">' + status + '</span></div><div class="stat-label">Room status</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("bolt") + '</div><div><div class="stat-value">' + (myShare ? "₹" + myShare.share.toLocaleString("en-IN") : "-") + '</div><div class="stat-label">This room’s EB share' + (latestPeriod ? " (" + latestPeriod + ")" : "") + '</div></div></div>' +
+      '<div class="stat-card accent-violet"><div class="stat-icon icon-violet">' + App.svg("receipt") + '</div><div><div class="stat-value">' + (ebShare.bill ? "₹" + ebShare.bill.totalAmount.toLocaleString("en-IN") : "-") + '</div><div class="stat-label">Block ' + room.block + ' total bill' + (latestPeriod ? " (" + latestPeriod + ")" : "") + '</div></div></div>';
+
+    document.getElementById("ebPeriodTag").textContent = latestPeriod || "No bill yet";
+
+    var occupantsBody = document.getElementById("occupantsBody");
+    if (!occupants.length) {
+      occupantsBody.innerHTML = '<div class="empty-state compact">' + App.svg("users") + '<p>No occupants currently assigned to this room.</p></div>';
+    } else {
+      occupantsBody.innerHTML = '<div class="detail-rows">' + occupants.map(function (s) {
+        return '<div class="detail-row"><span>' + s.regNo + ' · ' + s.course + '</span><strong><a href="student-detail.html?id=' + s.id + '">' + s.name + '</a></strong></div>';
+      }).join("") + '</div>';
+    }
+
+    var ebBody = document.getElementById("ebBody");
+    if (!ebShare.bill) {
+      ebBody.innerHTML = '<div class="empty-state compact">' + App.svg("bolt") +
+        '<p>No electricity bill has been recorded for Block ' + room.block + ' yet.</p>' +
+        '<a class="btn btn-outline btn-sm" href="eb-billing.html">Go to EB Billing</a></div>';
+    } else {
+      ebBody.innerHTML =
+        '<div class="detail-rows">' +
+          '<div class="detail-row"><span>Units Consumed</span><strong>' + ebShare.bill.unitsConsumed.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Rate / Unit</span><strong>₹' + ebShare.bill.ratePerUnit + '</strong></div>' +
+          '<div class="detail-row"><span>Block Total Amount</span><strong>₹' + ebShare.bill.totalAmount.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>This Room’s Occupants</span><strong>' + (myShare ? myShare.occupants : 0) + '</strong></div>' +
+          '<div class="detail-row"><span>This Room’s Share</span><strong>₹' + (myShare ? myShare.share.toLocaleString("en-IN") : "0") + '</strong></div>' +
+        '</div>';
+    }
+  }
+  }
+</script>
+</body>
+</html>

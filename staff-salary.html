@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salary Details · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Salary Details</h2>
+          <p class="desc">Track and manage monthly payroll for hostel staff.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="staff:create">+ Add Salary Record</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by staff name...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="monthFilter"></select>
+            <select class="select-filter" id="statusFilter">
+              <option value="">All status</option>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Staff</th><th>Designation</th><th>Month</th><th class="num">Amount</th><th>Status</th><th>Paid Date</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="spModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Add Salary Record</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="spForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Staff *</label><select id="fStaff" required></select></div>
+          <div class="field"><label>Month * <span class="hint">(e.g. 2026-10)</span></label><input type="text" id="fMonth" pattern="^\d{4}-\d{2}$" placeholder="2026-10" required></div>
+          <div class="field"><label>Amount (₹) *</label><input type="number" id="fAmount" min="0" step="500" required></div>
+          <div class="field span-2">
+            <label>Status</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="fStatus" value="pending" checked><span>Pending</span></label>
+              <label><input type="radio" name="fStatus" value="paid"><span>Paid</span></label>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Record</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("staff", "read")) {
+  App.renderShell({ active: "staff-salary", title: "Salary Details", subtitle: "Payroll management for hostel staff" });
+
+  var canCreate = App.can("staff", "create");
+  var canUpdate = App.can("staff", "update");
+  var searchTerm = "", statusFilterVal = "", monthFilterVal = "";
+  var currentMonth = Data.isoDate(Data.today()).slice(0, 7);
+
+  var fStaffSel = document.getElementById("fStaff");
+  fStaffSel.innerHTML = Data.getStaff().map(function (s) { return '<option value="' + s.id + '" data-salary="' + s.salaryPerMonth + '">' + s.name + ' (' + s.designation + ')</option>'; }).join("");
+
+  function distinctMonths() {
+    var months = {};
+    Data.getStaffSalary().forEach(function (r) { months[r.month] = true; });
+    return Object.keys(months).sort(function (a, b) { return b.localeCompare(a); });
+  }
+
+  var monthFilter = document.getElementById("monthFilter");
+  function populateMonthFilter() {
+    var months = distinctMonths();
+    monthFilter.innerHTML = '<option value="">All months</option>' + months.map(function (m) { return '<option value="' + m + '">' + m + '</option>'; }).join("");
+    if (!monthFilterVal && months.length) monthFilterVal = months[0];
+    monthFilter.value = monthFilterVal;
+  }
+  populateMonthFilter();
+
+  function render() {
+    var staff = Data.getStaff();
+    var staffById = {};
+    staff.forEach(function (s) { staffById[s.id] = s; });
+
+    var recs = Data.getStaffSalary();
+    var q = searchTerm.toLowerCase();
+    var filtered = recs.filter(function (r) {
+      var s = staffById[r.staffId];
+      var matchesSearch = !q || (s && s.name.toLowerCase().indexOf(q) > -1);
+      var matchesMonth = !monthFilterVal || r.month === monthFilterVal;
+      var matchesStatus = !statusFilterVal || r.status === statusFilterVal;
+      return matchesSearch && matchesMonth && matchesStatus;
+    }).sort(function (a, b) { return b.month.localeCompare(a.month); });
+
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + recs.length + " records";
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("wallet") + '<p>No salary records found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (r) {
+        var s = staffById[r.staffId];
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div>' +
+          '<div><strong>' + (s ? s.name : "Unknown") + '</strong></div></div></td>' +
+          '<td>' + (s ? '<span class="chip chip-indigo">' + s.designation + '</span>' : "-") + '</td>' +
+          '<td>' + r.month + '</td>' +
+          '<td class="num num-strong">₹' + r.amount.toLocaleString("en-IN") + '</td>' +
+          '<td><span class="status-pill ' + r.status + '">' + r.status + '</span></td>' +
+          '<td>' + (r.paidDate ? Data.displayDate(r.paidDate) : "-") + '</td>' +
+          '<td style="text-align:right">' +
+            (r.status === "pending" && canUpdate ? '<button class="btn btn-outline btn-sm" data-pay="' + r.id + '">' + App.svg("checkCircle") + ' Mark Paid</button>' : "") +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    var statGrid = document.getElementById("statGrid");
+    var paidThisMonth = recs.filter(function (r) { return r.month === currentMonth && r.status === "paid"; }).reduce(function (a, r) { return a + r.amount; }, 0);
+    var totalPending = Business.getPendingSalaryTotal();
+    var pendingStaffIds = {};
+    recs.filter(function (r) { return r.status === "pending"; }).forEach(function (r) { pendingStaffIds[r.staffId] = true; });
+    var pendingStaffCount = Object.keys(pendingStaffIds).length;
+    var activeStaff = staff.filter(function (s) { return s.isActive; });
+    var avgSalary = activeStaff.length ? Math.round(activeStaff.reduce(function (a, s) { return a + s.salaryPerMonth; }, 0) / activeStaff.length) : 0;
+
+    statGrid.innerHTML =
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(paidThisMonth) + '</div><div class="stat-label">Paid this month</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalPending) + '</div><div class="stat-label">Total pending</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("idCard") + '</div><div><div class="stat-value">' + pendingStaffCount + '</div><div class="stat-label">Staff with pending salary</div></div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(avgSalary) + '</div><div class="stat-label">Average monthly salary</div></div></div>';
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("monthFilter").addEventListener("change", function (e) { monthFilterVal = e.target.value; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var payBtn = e.target.closest("[data-pay]");
+    if (payBtn) {
+      var id = payBtn.getAttribute("data-pay");
+      var recs = Data.getStaffSalary().map(function (r) {
+        if (r.id !== id) return r;
+        return Object.assign({}, r, { status: "paid", paidDate: Data.isoDate(Data.today()) });
+      });
+      Data.saveStaffSalary(recs);
+      App.showToast("Salary marked as paid.");
+      populateMonthFilter();
+      render();
+    }
+  });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("spModal");
+  function openModal() {
+    document.getElementById("spForm").reset();
+    if (fStaffSel.options.length) {
+      fStaffSel.selectedIndex = 0;
+      document.getElementById("fAmount").value = fStaffSel.options[0].getAttribute("data-salary");
+    }
+    document.getElementById("fMonth").value = currentMonth;
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  fStaffSel.addEventListener("change", function () {
+    var opt = fStaffSel.options[fStaffSel.selectedIndex];
+    if (opt) document.getElementById("fAmount").value = opt.getAttribute("data-salary");
+  });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("spForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var record = {
+      id: Data.uid("sp"),
+      staffId: fStaffSel.value,
+      month: document.getElementById("fMonth").value.trim(),
+      amount: parseFloat(document.getElementById("fAmount").value) || 0,
+      status: document.querySelector('input[name="fStatus"]:checked').value,
+      paidDate: ""
+    };
+    if (record.status === "paid") record.paidDate = Data.isoDate(Data.today());
+
+    Data.saveStaffSalary(Data.getStaffSalary().concat([record]));
+    App.showToast("Salary record added.");
+    closeModal();
+    populateMonthFilter();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

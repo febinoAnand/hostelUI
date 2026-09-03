@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Travel Updates · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Travel Updates</h2>
+          <p class="desc">Hostel-wide home departure and return check-in log.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="outpass:create">+ Log Travel Entry</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by hosteller name...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="typeFilter">
+              <option value="">All types</option>
+              <option value="home">Home</option>
+              <option value="return">Return</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Hosteller</th><th>Type</th><th>Date</th><th>Expected Return</th><th>Mode</th><th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="travelModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Log Travel Entry</h3>
+      <button class="modal-close" id="travelModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="travelForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Hosteller *</label><select id="fStudent" required></select></div>
+          <div class="field span-2">
+            <label>Travel Type</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="fType" value="home" checked><span>Home Departure</span></label>
+              <label><input type="radio" name="fType" value="return"><span>Return</span></label>
+            </div>
+          </div>
+          <div class="field"><label>Date *</label><input type="date" id="fDate" required></div>
+          <div class="field" id="expectedField"><label>Expected Return Date</label><input type="date" id="fExpected"></div>
+          <div class="field span-2"><label>Mode of Travel *</label>
+            <select id="fMode" required>
+              <option value="Bus">Bus</option>
+              <option value="Train">Train</option>
+              <option value="Flight">Flight</option>
+              <option value="Own Vehicle">Own Vehicle</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field span-2"><label>Notes</label><textarea id="fNotes" placeholder="Optional notes..."></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="travelCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="travelSaveBtn">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("outpass", "read")) {
+  App.renderShell({ active: "travel", title: "Travel Updates", subtitle: "Home departures and return check-ins" });
+
+  var searchTerm = "", typeFilterVal = "";
+
+  function studentOptionsHtml() {
+    var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
+    return students.map(function (s) { return '<option value="' + s.id + '">' + s.name + ' (' + s.regNo + ')</option>'; }).join("");
+  }
+
+  function currentlyHomeCount() {
+    var travel = Data.getTravel();
+    var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
+    var count = 0;
+    students.forEach(function (s) {
+      var recs = travel.filter(function (t) { return t.studentId === s.id; })
+        .sort(function (a, b) { return new Date(a.date) - new Date(b.date); });
+      if (!recs.length) return;
+      var latest = recs[recs.length - 1];
+      if (latest.type === "home") count++;
+    });
+    return count;
+  }
+
+  function render() {
+    var travel = Data.getTravel();
+    var homeCount = travel.filter(function (t) { return t.type === "home"; }).length;
+    var returnCount = travel.filter(function (t) { return t.type === "return"; }).length;
+    var atHome = currentlyHomeCount();
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("bus") + '</div><div><div class="stat-value">' + homeCount + '</div><div class="stat-label">Home departures logged</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + returnCount + '</div><div class="stat-label">Returns logged</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("door") + '</div><div><div class="stat-value">' + atHome + '</div><div class="stat-label">Currently home</div></div></div>';
+
+    var students = Data.getStudents();
+    var rooms = Data.getRooms();
+    var q = searchTerm.toLowerCase();
+    var filtered = travel.filter(function (t) {
+      var s = students.find(function (x) { return x.id === t.studentId; });
+      var matchesSearch = !q || (s && s.name.toLowerCase().indexOf(q) > -1);
+      var matchesType = !typeFilterVal || t.type === typeFilterVal;
+      return matchesSearch && matchesType;
+    }).sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + travel.length + " travel entries";
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("bus") + '<p>No travel entries found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (t) {
+        var s = students.find(function (x) { return x.id === t.studentId; });
+        var room = s ? rooms.find(function (r) { return r.id === s.roomId; }) : null;
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong><span>' + (room ? room.roomNumber : "") + '</span></div></div></td>' +
+          '<td>' + (t.type === "home" ? '<span class="chip chip-amber">Home</span>' : '<span class="chip chip-green">Return</span>') + '</td>' +
+          '<td>' + Data.displayDate(t.date) + '</td>' +
+          '<td>' + (t.type === "home" && t.expectedReturnDate ? Data.displayDate(t.expectedReturnDate) : "-") + '</td>' +
+          '<td>' + (t.mode || "-") + '</td>' +
+          '<td>' + (t.notes || "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("typeFilter").addEventListener("change", function (e) { typeFilterVal = e.target.value; render(); });
+
+  /* ---------------- Log Travel modal ---------------- */
+  var modal = document.getElementById("travelModal");
+  function toggleExpectedField() {
+    var type = document.querySelector('input[name="fType"]:checked').value;
+    document.getElementById("expectedField").style.display = type === "home" ? "" : "none";
+  }
+  document.querySelectorAll('input[name="fType"]').forEach(function (r) { r.addEventListener("change", toggleExpectedField); });
+
+  function openModal() {
+    document.getElementById("travelForm").reset();
+    document.getElementById("fStudent").innerHTML = studentOptionsHtml();
+    document.getElementById("fDate").value = Data.isoDate(Data.today());
+    document.getElementById("fExpected").value = "";
+    document.querySelector('input[name="fType"][value="home"]').checked = true;
+    toggleExpectedField();
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("travelModalClose").addEventListener("click", closeModal);
+  document.getElementById("travelCancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("travelSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("travelForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var type = document.querySelector('input[name="fType"]:checked').value;
+    var list = Data.getTravel();
+    list.push({
+      id: Data.uid("tr"), studentId: document.getElementById("fStudent").value, type: type,
+      date: document.getElementById("fDate").value,
+      expectedReturnDate: type === "home" ? document.getElementById("fExpected").value : "",
+      mode: document.getElementById("fMode").value,
+      notes: document.getElementById("fNotes").value.trim()
+    });
+    Data.saveTravel(list);
+    App.showToast("Travel entry logged.");
+    closeModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Legal Compliance · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Legal Compliance</h2>
+          <p class="desc">Licenses, certificates and renewals the hostel must keep current.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="admin:create">+ Add Compliance Item</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div id="feed"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="lcModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Compliance Item</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="lcForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field span-2"><label>Title *</label><input type="text" id="fTitle" required></div>
+          <div class="field"><label>Category *</label>
+            <select id="fCategory" required>
+              <option value="Safety">Safety</option>
+              <option value="License">License</option>
+              <option value="Utility">Utility</option>
+              <option value="Canteen">Canteen</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label>Due Date *</label><input type="date" id="fDueDate" required></div>
+          <div class="field"><label>Last Renewed</label><input type="date" id="fRenewedDate"></div>
+          <div class="field span-2"><label>Notes</label><textarea id="fNotes" rows="3"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("admin", "read")) {
+  App.renderShell({ active: "legal-compliance", title: "Legal Compliance", subtitle: "Licenses, certificates & renewals" });
+
+  var canUpdate = App.can("admin", "update");
+  var CHIP_COLORS = ["chip-indigo", "chip-cyan", "chip-green", "chip-amber", "chip-pink"];
+  var CATEGORY_LIST = ["Safety", "License", "Utility", "Canteen", "Other"];
+  function chipClassFor(category) {
+    var idx = CATEGORY_LIST.indexOf(category);
+    return CHIP_COLORS[(idx < 0 ? CATEGORY_LIST.length - 1 : idx) % CHIP_COLORS.length];
+  }
+
+  var STATUS_ORDER = { expired: 0, expiring: 1, valid: 2 };
+  var STATUS_LABEL = { expired: "expired", expiring: "expiring", valid: "valid" };
+
+  function daysText(st) {
+    if (st.status === "expired") return Math.abs(st.days) + " day(s) overdue";
+    if (st.status === "expiring") return "Due in " + st.days + " day(s)";
+    return st.days + " day(s) remaining";
+  }
+
+  function render() {
+    var items = Data.getLegalCompliance();
+    var withStatus = items.map(function (item) { return { item: item, st: Business.getComplianceStatus(item) }; });
+    withStatus.sort(function (a, b) {
+      var byStatus = STATUS_ORDER[a.st.status] - STATUS_ORDER[b.st.status];
+      if (byStatus !== 0) return byStatus;
+      return a.st.days - b.st.days;
+    });
+
+    var validCount = withStatus.filter(function (x) { return x.st.status === "valid"; }).length;
+    var expiringCount = withStatus.filter(function (x) { return x.st.status === "expiring"; }).length;
+    var expiredCount = withStatus.filter(function (x) { return x.st.status === "expired"; }).length;
+
+    var statGrid = document.getElementById("statGrid");
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("shield") + '</div><div><div class="stat-value">' + items.length + '</div><div class="stat-label">Total compliance items</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + validCount + '</div><div class="stat-label">Valid</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("alertTriangle") + '</div><div><div class="stat-value">' + expiringCount + '</div><div class="stat-label">Expiring soon</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + expiredCount + '</div><div class="stat-label">Expired</div></div></div>';
+
+    var feed = document.getElementById("feed");
+    if (!withStatus.length) {
+      feed.innerHTML = '<div class="panel"><div class="empty-state">' + App.svg("shield") + '<p>No compliance items yet. Add one to start tracking renewals.</p></div></div>';
+      return;
+    }
+    feed.innerHTML = withStatus.map(function (x) {
+      var item = x.item, st = x.st;
+      return '<div class="panel" style="margin-bottom:14px;">' +
+        '<div class="panel-header">' +
+          '<h3>' + item.title + '</h3>' +
+          '<span class="status-pill ' + STATUS_LABEL[st.status] + '">' + STATUS_LABEL[st.status] + '</span>' +
+        '</div>' +
+        '<div class="detail-rows">' +
+          '<div class="detail-row"><span>Category</span><strong><span class="chip ' + chipClassFor(item.category) + '">' + item.category + '</span></strong></div>' +
+          '<div class="detail-row"><span>Due Date</span><strong>' + Data.displayDate(item.dueDate) + '</strong></div>' +
+          '<div class="detail-row"><span>Status</span><strong>' + daysText(st) + '</strong></div>' +
+          '<div class="detail-row"><span>Last Renewed</span><strong>' + Data.displayDate(item.renewedDate) + '</strong></div>' +
+          '<div class="detail-row"><span>Notes</span><strong>' + (item.notes || "-") + '</strong></div>' +
+        '</div>' +
+        (canUpdate ? '<div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline btn-sm" data-edit="' + item.id + '">' + App.svg("edit") + ' Edit</button></div>' : "") +
+      '</div>';
+    }).join("");
+  }
+
+  document.getElementById("feed").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    if (editBtn) openModal(editBtn.getAttribute("data-edit"));
+  });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("lcModal");
+  function openModal(id) {
+    document.getElementById("lcForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fRenewedDate").value = Data.isoDate(Data.today());
+    if (id) {
+      var item = Data.getLegalCompliance().find(function (x) { return x.id === id; });
+      if (!item) return;
+      document.getElementById("modalTitle").textContent = "Edit Compliance Item";
+      document.getElementById("editId").value = item.id;
+      document.getElementById("fTitle").value = item.title;
+      document.getElementById("fCategory").value = item.category;
+      document.getElementById("fDueDate").value = item.dueDate;
+      document.getElementById("fRenewedDate").value = item.renewedDate || "";
+      document.getElementById("fNotes").value = item.notes || "";
+    } else {
+      document.getElementById("modalTitle").textContent = "Add Compliance Item";
+      document.getElementById("fDueDate").value = Data.isoDate(Data.addDays(Data.today(), 30));
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("lcForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var record = {
+      id: id || Data.uid("lc"),
+      title: document.getElementById("fTitle").value.trim(),
+      category: document.getElementById("fCategory").value,
+      dueDate: document.getElementById("fDueDate").value,
+      renewedDate: document.getElementById("fRenewedDate").value,
+      notes: document.getElementById("fNotes").value.trim()
+    };
+    var items = Data.getLegalCompliance();
+    if (id) {
+      items = items.map(function (x) { return x.id === id ? record : x; });
+    } else {
+      items = items.concat([record]);
+    }
+    Data.saveLegalCompliance(items);
+    App.showToast(id ? "Compliance item updated." : "Compliance item added.");
+    closeModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

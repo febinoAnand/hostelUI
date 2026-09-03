@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canteen Inventory · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Canteen Inventory</h2>
+          <p class="desc">Stock master, inward/outward transactions and cost tracking.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-outline" id="addItemBtn" data-require="canteen:create">+ Add Item</button>
+          <button class="btn btn-primary" id="recordStockBtn" data-require="canteen:create">+ Record Stock Entry</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-header"><h3>Inward Cost by Category</h3></div>
+        <div id="catChart"></div>
+      </div>
+
+      <div class="panel-header" style="margin:0 0 10px"><h3>Stock Balances</h3></div>
+      <div class="table-card" style="margin-bottom:24px">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Item</th><th>Category</th><th>Unit</th><th>Balance</th><th>Reorder Threshold</th><th>Status</th></tr>
+            </thead>
+            <tbody id="balanceBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-header" style="margin:0 0 10px"><h3>Recent Stock Transactions</h3></div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Item</th><th>Type</th><th>Quantity</th><th>Rate</th><th>Total</th><th>Date</th><th>Supplier</th></tr>
+            </thead>
+            <tbody id="txnBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="stockModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Record Stock Entry</h3>
+      <button class="modal-close" id="stockModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="stockForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Item *</label><select id="stItem" required></select></div>
+          <div class="field span-2">
+            <label>Transaction Type</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="sType" value="inward" checked><span>Inward</span></label>
+              <label><input type="radio" name="sType" value="outward"><span>Outward</span></label>
+            </div>
+          </div>
+          <div class="field"><label>Quantity *</label><input type="number" id="stQty" min="0" step="0.01" required></div>
+          <div class="field"><label>Rate per Unit (₹) *</label><input type="number" id="stRate" min="0" step="0.01" required></div>
+          <div class="field"><label>Date *</label><input type="date" id="stDate" required></div>
+          <div class="field"><label>Supplier</label><input type="text" id="stSupplier" placeholder="Optional"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="stockCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="stockSaveBtn">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="itemModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Add Item</h3>
+      <button class="modal-close" id="itemModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="itemForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Item Name *</label><input type="text" id="fiName" required></div>
+          <div class="field"><label>Category *</label><select id="fiCategory" required></select></div>
+          <div class="field"><label>Unit *</label><input type="text" id="fiUnit" placeholder="kg, litre, pack..." required></div>
+          <div class="field"><label>Reorder Threshold *</label><input type="number" id="fiReorder" min="0" step="1" required></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="itemCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="itemSaveBtn">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("canteen", "read")) {
+  App.renderShell({ active: "canteen-inventory", title: "Inventory", subtitle: "Stock, transactions and cost tracking" });
+
+  var fiCategory = document.getElementById("fiCategory");
+  fiCategory.innerHTML = Data.CANTEEN_CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
+
+  function refreshItemSelect(selectedId) {
+    var items = Data.getCanteenItems();
+    document.getElementById("stItem").innerHTML = items.map(function (it) {
+      return '<option value="' + it.id + '"' + (it.id === selectedId ? " selected" : "") + '>' + it.name + ' (' + it.unit + ')</option>';
+    }).join("");
+  }
+
+  function render() {
+    var items = Data.getCanteenItems();
+    var stock = Data.getCanteenStock();
+    var todayIso = Data.isoDate(Data.today());
+    var firstOfMonth = new Date(Data.today().getFullYear(), Data.today().getMonth(), 1);
+    var firstOfMonthIso = Data.isoDate(firstOfMonth);
+    var lowStock = Business.getLowStockAlerts();
+    var monthCost = Business.getCanteenCostTotals(firstOfMonthIso, todayIso);
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("box") + '</div><div><div class="stat-value">' + items.length + '</div><div class="stat-label">Total items</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("alertTriangle") + '</div><div><div class="stat-value">' + lowStock.length + '</div><div class="stat-label">Low stock alerts</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("trendingUp") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(monthCost) + '</div><div class="stat-label">This month\'s inward cost</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("receipt") + '</div><div><div class="stat-value">' + stock.length + '</div><div class="stat-label">Stock transactions logged</div></div></div>';
+
+    /* Donut: inward cost by category */
+    var byCat = {};
+    stock.filter(function (t) { return t.type === "inward"; }).forEach(function (t) {
+      var item = items.find(function (i) { return i.id === t.itemId; });
+      if (!item) return;
+      byCat[item.category] = (byCat[item.category] || 0) + t.totalAmount;
+    });
+    var donutItems = Object.keys(byCat).map(function (k) { return { label: k, value: byCat[k] }; });
+    Charts.renderDonutChart(document.getElementById("catChart"), donutItems, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); }, centerLabel: "Inward Cost" });
+
+    /* Balances table */
+    var balances = Business.getAllStockBalances();
+    var balanceBody = document.getElementById("balanceBody");
+    if (!balances.length) {
+      balanceBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("box") + '<p>No items yet.</p></div></td></tr>';
+    } else {
+      balanceBody.innerHTML = balances.map(function (b) {
+        return '<tr>' +
+          '<td><strong>' + b.item.name + '</strong></td>' +
+          '<td><span class="chip chip-indigo">' + b.item.category + '</span></td>' +
+          '<td>' + b.item.unit + '</td>' +
+          '<td class="num-strong">' + b.balance.toLocaleString("en-IN") + '</td>' +
+          '<td class="num">' + b.item.reorderThreshold.toLocaleString("en-IN") + '</td>' +
+          '<td><span class="status-pill ' + (b.isLowStock ? "pending" : "active") + '">' + (b.isLowStock ? "Low Stock" : "OK") + '</span></td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    /* Recent transactions table */
+    var recent = stock.slice().sort(function (a, b) { return b.date.localeCompare(a.date); }).slice(0, 30);
+    var txnBody = document.getElementById("txnBody");
+    if (!recent.length) {
+      txnBody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("receipt") + '<p>No transactions logged yet.</p></div></td></tr>';
+    } else {
+      txnBody.innerHTML = recent.map(function (t) {
+        var item = items.find(function (i) { return i.id === t.itemId; });
+        var itemName = item ? item.name : "Unknown Item";
+        var unit = item ? item.unit : "";
+        return '<tr>' +
+          '<td><strong>' + itemName + '</strong></td>' +
+          '<td><span class="chip ' + (t.type === "inward" ? "chip-green" : "chip-red") + '">' + (t.type === "inward" ? "Inward" : "Outward") + '</span></td>' +
+          '<td class="num">' + t.quantity.toLocaleString("en-IN") + ' ' + unit + '</td>' +
+          '<td class="num">₹' + t.ratePerUnit.toLocaleString("en-IN") + '</td>' +
+          '<td class="num-strong">₹' + t.totalAmount.toLocaleString("en-IN") + '</td>' +
+          '<td>' + Data.displayDate(t.date) + '</td>' +
+          '<td>' + (t.supplier || "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    refreshItemSelect(document.getElementById("stItem").value);
+  }
+
+  /* ---------------- Stock entry modal ---------------- */
+  var stockModal = document.getElementById("stockModal");
+  function openStockModal() {
+    document.getElementById("stockForm").reset();
+    refreshItemSelect("");
+    document.querySelector('input[name="sType"][value="inward"]').checked = true;
+    document.getElementById("stDate").value = Data.isoDate(Data.today());
+    stockModal.classList.add("show");
+  }
+  function closeStockModal() { stockModal.classList.remove("show"); }
+  document.getElementById("recordStockBtn").addEventListener("click", openStockModal);
+  document.getElementById("stockModalClose").addEventListener("click", closeStockModal);
+  document.getElementById("stockCancelBtn").addEventListener("click", closeStockModal);
+  stockModal.addEventListener("click", function (e) { if (e.target === stockModal) closeStockModal(); });
+
+  document.getElementById("stockSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("stockForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var itemId = document.getElementById("stItem").value;
+    var type = document.querySelector('input[name="sType"]:checked').value;
+    var qty = parseFloat(document.getElementById("stQty").value) || 0;
+    var rate = parseFloat(document.getElementById("stRate").value) || 0;
+    var date = document.getElementById("stDate").value;
+    var supplier = document.getElementById("stSupplier").value.trim();
+    var list = Data.getCanteenStock();
+    list.push({ id: Data.uid("st"), itemId: itemId, type: type, quantity: qty, ratePerUnit: rate, totalAmount: qty * rate, date: date, supplier: supplier });
+    Data.saveCanteenStock(list);
+    App.showToast("Stock entry recorded.");
+    closeStockModal();
+    render();
+  });
+
+  /* ---------------- Add item modal ---------------- */
+  var itemModal = document.getElementById("itemModal");
+  function openItemModal() {
+    document.getElementById("itemForm").reset();
+    itemModal.classList.add("show");
+  }
+  function closeItemModal() { itemModal.classList.remove("show"); }
+  document.getElementById("addItemBtn").addEventListener("click", openItemModal);
+  document.getElementById("itemModalClose").addEventListener("click", closeItemModal);
+  document.getElementById("itemCancelBtn").addEventListener("click", closeItemModal);
+  itemModal.addEventListener("click", function (e) { if (e.target === itemModal) closeItemModal(); });
+
+  document.getElementById("itemSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("itemForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var record = {
+      id: Data.uid("ci"),
+      name: document.getElementById("fiName").value.trim(),
+      category: document.getElementById("fiCategory").value,
+      unit: document.getElementById("fiUnit").value.trim(),
+      reorderThreshold: parseFloat(document.getElementById("fiReorder").value) || 0
+    };
+    var list = Data.getCanteenItems();
+    list.push(record);
+    Data.saveCanteenItems(list);
+    App.showToast("Item added.");
+    closeItemModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

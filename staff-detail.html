@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Profile · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <a class="btn btn-outline btn-sm" href="staff.html">&larr; Back to Staff</a>
+      </div>
+
+      <div id="notFound" style="display:none" class="empty-state">
+        <p>Staff record not found.</p>
+      </div>
+
+      <div id="pageBody" style="display:none">
+        <div class="profile-header">
+          <div class="profile-avatar" id="pAvatar"></div>
+          <div>
+            <h2 id="pName" style="font-size:20px"></h2>
+            <p class="desc" id="pMeta"></p>
+          </div>
+          <span class="status-pill" id="pStatus" style="margin-left:auto"></span>
+        </div>
+
+        <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+        <div id="tabsMount"></div>
+        <div id="tabPanels"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("staff", "read")) {
+  App.renderShell({ active: "staff", title: "Staff Profile", subtitle: "Full record, attendance & salary history" });
+
+  var params = new URLSearchParams(window.location.search);
+  var staffId = params.get("id");
+  var staffMember = Data.getStaff().find(function (s) { return s.id === staffId; });
+
+  if (!staffMember) {
+    document.getElementById("notFound").style.display = "flex";
+  } else {
+    document.getElementById("pageBody").style.display = "block";
+
+    document.getElementById("pAvatar").textContent = App.initials(staffMember.name);
+    document.getElementById("pName").textContent = staffMember.name;
+    document.getElementById("pMeta").textContent = staffMember.designation + " · " + staffMember.phone + " · Joined " + Data.displayDate(staffMember.joinDate);
+    document.getElementById("pStatus").textContent = staffMember.isActive ? "active" : "inactive";
+    document.getElementById("pStatus").className = "status-pill " + (staffMember.isActive ? "active" : "inactive");
+
+    var salarySummary = Business.getSalarySummary(staffMember.id);
+    var attendanceToday = Business.getStaffAttendanceToday(staffMember.id);
+    var currentMonth = Data.isoDate(Data.today()).slice(0, 7);
+    var thisMonthPaid = salarySummary.records
+      .filter(function (r) { return r.month === currentMonth && r.status === "paid"; })
+      .reduce(function (a, r) { return a + r.amount; }, 0);
+    var since30 = Data.isoDate(Data.addDays(Data.today(), -30));
+    var daysPresent30 = Data.getStaffAttendance().filter(function (a) {
+      return a.staffId === staffMember.id && a.status === "present" && a.date >= since30;
+    }).length;
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("inout") + '</div><div><div class="stat-value" style="text-transform:capitalize">' + attendanceToday + '</div><div class="stat-label">Today\'s attendance</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(thisMonthPaid) + '</div><div class="stat-label">Paid this month</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(salarySummary.pending) + '</div><div class="stat-label">Pending salary</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("calendar") + '</div><div><div class="stat-value">' + daysPresent30 + '</div><div class="stat-label">Days present (30d)</div></div></div>';
+
+    var TABS = [
+      { key: "overview", label: "Overview" },
+      { key: "attendance", label: "Attendance History" },
+      { key: "salary", label: "Salary History" }
+    ];
+    var activeTab = "overview";
+
+    function renderTabs() {
+      document.getElementById("tabsMount").innerHTML = '<div class="page-tabs">' + TABS.map(function (t) {
+        return '<button type="button" class="page-tab' + (t.key === activeTab ? " active" : "") + '" data-tab="' + t.key + '">' + t.label + '</button>';
+      }).join("") + '</div>';
+      document.querySelectorAll("[data-tab]").forEach(function (btn) {
+        btn.addEventListener("click", function () { activeTab = btn.getAttribute("data-tab"); renderTabs(); renderPanel(); });
+      });
+    }
+
+    function emptyRow(msg) { return '<div class="empty-state compact">' + App.svg("fileText") + '<p>' + msg + '</p></div>'; }
+
+    function renderOverview() {
+      return '<div class="detail-grid">' +
+        '<div class="detail-card"><div class="detail-card-header">Staff Details</div><div class="detail-rows">' +
+          '<div class="detail-row"><span>Designation</span><strong>' + staffMember.designation + '</strong></div>' +
+          '<div class="detail-row"><span>Phone</span><strong>' + staffMember.phone + '</strong></div>' +
+          '<div class="detail-row"><span>Join Date</span><strong>' + Data.displayDate(staffMember.joinDate) + '</strong></div>' +
+          '<div class="detail-row"><span>Status</span><strong style="text-transform:capitalize">' + (staffMember.isActive ? "active" : "inactive") + '</strong></div>' +
+        '</div></div>' +
+        '<div class="detail-card"><div class="detail-card-header">Salary Summary</div><div class="detail-rows">' +
+          '<div class="detail-row"><span>Monthly Salary</span><strong>₹' + staffMember.salaryPerMonth.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Total Paid to Date</span><strong>₹' + salarySummary.paid.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Total Pending</span><strong>₹' + salarySummary.pending.toLocaleString("en-IN") + '</strong></div>' +
+        '</div></div>' +
+      '</div>';
+    }
+
+    function renderAttendance() {
+      var logs = Data.getStaffAttendance().filter(function (a) { return a.staffId === staffMember.id; })
+        .sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+      if (!logs.length) return '<div class="panel">' + emptyRow("No attendance records yet.") + '</div>';
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>In Time</th><th>Out Time</th></tr></thead><tbody>' +
+        logs.map(function (a) {
+          return '<tr><td>' + Data.displayDate(a.date) + '</td><td><span class="status-pill ' + a.status + '">' + a.status + '</span></td><td>' + (a.inTime || "-") + '</td><td>' + (a.outTime || "-") + '</td></tr>';
+        }).join("") + '</tbody></table></div></div>';
+    }
+
+    function renderSalary() {
+      var recs = salarySummary.records.slice().sort(function (a, b) { return b.month.localeCompare(a.month); });
+      if (!recs.length) return '<div class="panel">' + emptyRow("No salary records yet.") + '</div>';
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Month</th><th class="num">Amount</th><th>Status</th><th>Paid Date</th></tr></thead><tbody>' +
+        recs.map(function (r) {
+          return '<tr><td>' + r.month + '</td><td class="num num-strong">₹' + r.amount.toLocaleString("en-IN") + '</td><td><span class="status-pill ' + r.status + '">' + r.status + '</span></td><td>' + (r.paidDate ? Data.displayDate(r.paidDate) : "-") + '</td></tr>';
+        }).join("") + '</tbody></table></div></div>';
+    }
+
+    function renderPanel() {
+      var map = { overview: renderOverview, attendance: renderAttendance, salary: renderSalary };
+      document.getElementById("tabPanels").innerHTML = map[activeTab]();
+    }
+
+    renderTabs();
+    renderPanel();
+  }
+  }
+</script>
+</body>
+</html>

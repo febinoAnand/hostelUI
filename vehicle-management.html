@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vehicle Management · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Vehicle Management</h2>
+          <p class="desc">Hostel vehicles, drivers and fuel / service / trip logs.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-outline" id="addLogBtn" data-require="admin:create">+ Log Entry</button>
+          <button class="btn btn-primary" id="addVehicleBtn" data-require="admin:create">+ Add Vehicle</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card" style="margin-bottom:20px;">
+        <div class="table-toolbar">
+          <div><strong style="font-size:13.5px;">Vehicles</strong></div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Vehicle No.</th><th>Type</th><th>Driver</th><th>Purpose</th><th>Total Cost</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="vehicleTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div><strong style="font-size:13.5px;">Logs</strong><span class="toolbar-meta" id="logsFilterMeta" style="margin-left:10px;"></span></div>
+          <div class="toolbar-filters" id="clearFilterWrap"></div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Vehicle No.</th><th>Date</th><th>Type</th><th>Cost</th><th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="logsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="vhModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="vhModalTitle">Add Vehicle</h3>
+      <button class="modal-close" id="vhModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="vhForm">
+        <input type="hidden" id="vhEditId">
+        <div class="field-grid">
+          <div class="field"><label>Vehicle No. *</label><input type="text" id="fVehicleNo" required></div>
+          <div class="field"><label>Type *</label><select id="fType" required></select></div>
+          <div class="field"><label>Driver Name</label><input type="text" id="fDriverName"></div>
+          <div class="field"><label>Purpose</label><input type="text" id="fPurpose"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="vhCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="vhSaveBtn">Save Vehicle</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="vlModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Log Entry</h3>
+      <button class="modal-close" id="vlModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="vlForm">
+        <div class="field-grid">
+          <div class="field span-2"><label>Vehicle *</label><select id="lVehicle" required></select></div>
+          <div class="field span-2">
+            <label>Log Type *</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="lType" value="fuel" checked><span>Fuel</span></label>
+              <label><input type="radio" name="lType" value="service"><span>Service</span></label>
+              <label><input type="radio" name="lType" value="trip"><span>Trip</span></label>
+            </div>
+          </div>
+          <div class="field"><label>Date *</label><input type="date" id="lDate" required></div>
+          <div class="field" id="lCostField"><label>Cost (₹)</label><input type="number" id="lCost" min="0" step="1" value="0"></div>
+          <div class="field span-2"><label>Notes</label><input type="text" id="lNotes"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="vlCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="vlSaveBtn">Save Log</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("admin", "read")) {
+  App.renderShell({ active: "vehicle-management", title: "Vehicle Management", subtitle: "Vehicles, drivers & logs" });
+
+  var canUpdate = App.can("admin", "update");
+  var canDelete = App.can("admin", "delete");
+  var selectedVehicleId = "";
+
+  var fType = document.getElementById("fType");
+  fType.innerHTML = Data.VEHICLE_TYPES.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join("");
+
+  var lVehicle = document.getElementById("lVehicle");
+
+  function refreshVehiclePicker() {
+    lVehicle.innerHTML = Data.getVehicles().map(function (v) { return '<option value="' + v.id + '">' + v.vehicleNo + ' — ' + v.type + '</option>'; }).join("");
+  }
+
+  function logTypeChipClass(type) {
+    if (type === "fuel") return "chip-amber";
+    if (type === "service") return "chip-cyan";
+    return "chip-green";
+  }
+
+  function firstOfMonthIso() {
+    var t = Data.today();
+    return Data.isoDate(new Date(t.getFullYear(), t.getMonth(), 1));
+  }
+  var todayIso = Data.isoDate(Data.today());
+
+  function render() {
+    var vehicles = Data.getVehicles();
+    var logs = Data.getVehicleLogs();
+
+    /* ---------------- Stats ---------------- */
+    var totalCost = 0;
+    vehicles.forEach(function (v) { totalCost += Business.getVehicleCostTotal(v.id); });
+    var serviceThisMonth = logs.filter(function (l) { return l.type === "service" && l.date >= firstOfMonthIso() && l.date <= todayIso; }).length;
+    var tripThisMonth = logs.filter(function (l) { return l.type === "trip" && l.date >= firstOfMonthIso() && l.date <= todayIso; }).length;
+
+    var statGrid = document.getElementById("statGrid");
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("car") + '</div><div><div class="stat-value">' + vehicles.length + '</div><div class="stat-label">Total vehicles</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalCost) + '</div><div class="stat-label">Total logged cost</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("briefcase") + '</div><div><div class="stat-value">' + serviceThisMonth + '</div><div class="stat-label">Service logs this month</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("bus") + '</div><div><div class="stat-value">' + tripThisMonth + '</div><div class="stat-label">Trip logs this month</div></div></div>';
+
+    /* ---------------- Vehicle table ---------------- */
+    var vBody = document.getElementById("vehicleTableBody");
+    if (!vehicles.length) {
+      vBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("car") + '<p>No vehicles added yet.</p></div></td></tr>';
+    } else {
+      vBody.innerHTML = vehicles.map(function (v) {
+        return '<tr>' +
+          '<td><span class="chip chip-indigo cell-mono">' + v.vehicleNo + '</span></td>' +
+          '<td><span class="chip chip-slate">' + v.type + '</span></td>' +
+          '<td>' + (v.driverName || "-") + '</td>' +
+          '<td class="desc-cell">' + (v.purpose || "-") + '</td>' +
+          '<td class="num-strong">₹' + Business.getVehicleCostTotal(v.id).toLocaleString("en-IN") + '</td>' +
+          '<td class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + v.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + v.id + '">' +
+              '<button data-view-logs="' + v.id + '">' + App.svg("eye") + ' View Logs</button>' +
+              (canUpdate ? '<button data-edit="' + v.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+              (canDelete ? '<button class="danger" data-del="' + v.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    /* ---------------- Logs table ---------------- */
+    var filteredLogs = logs.filter(function (l) { return !selectedVehicleId || l.vehicleId === selectedVehicleId; });
+    filteredLogs.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+
+    var clearWrap = document.getElementById("clearFilterWrap");
+    var filterMeta = document.getElementById("logsFilterMeta");
+    if (selectedVehicleId) {
+      var sv = vehicles.find(function (v) { return v.id === selectedVehicleId; });
+      filterMeta.textContent = sv ? "— filtered to " + sv.vehicleNo : "";
+      clearWrap.innerHTML = '<a href="#" id="clearFilterLink" style="font-size:12.5px;font-weight:700;color:var(--primary);">Clear filter</a>';
+      var link = document.getElementById("clearFilterLink");
+      if (link) link.addEventListener("click", function (e) { e.preventDefault(); selectedVehicleId = ""; render(); });
+    } else {
+      filterMeta.textContent = "";
+      clearWrap.innerHTML = "";
+    }
+
+    var lBody = document.getElementById("logsTableBody");
+    if (!filteredLogs.length) {
+      lBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("fileText") + '<p>No logs found.</p></div></td></tr>';
+    } else {
+      lBody.innerHTML = filteredLogs.map(function (l) {
+        var v = vehicles.find(function (x) { return x.id === l.vehicleId; });
+        return '<tr>' +
+          '<td class="cell-mono">' + (v ? v.vehicleNo : "-") + '</td>' +
+          '<td>' + Data.displayDate(l.date) + '</td>' +
+          '<td><span class="chip ' + logTypeChipClass(l.type) + '">' + l.type + '</span></td>' +
+          '<td class="num">' + (l.cost ? "₹" + l.cost.toLocaleString("en-IN") : "-") + '</td>' +
+          '<td class="desc-cell">' + (l.notes || "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    refreshVehiclePicker();
+  }
+
+  document.getElementById("vehicleTableBody").addEventListener("click", function (e) {
+    var viewBtn = e.target.closest("[data-view-logs]");
+    var editBtn = e.target.closest("[data-edit]");
+    var delBtn = e.target.closest("[data-del]");
+    if (viewBtn) { selectedVehicleId = viewBtn.getAttribute("data-view-logs"); render(); }
+    if (editBtn) { openVehicleModal(editBtn.getAttribute("data-edit")); }
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      if (confirm("Delete this vehicle? Its logged history will remain but be unlinked.")) {
+        Data.saveVehicles(Data.getVehicles().filter(function (x) { return x.id !== id; }));
+        if (selectedVehicleId === id) selectedVehicleId = "";
+        App.showToast("Vehicle deleted.");
+        render();
+      }
+    }
+  });
+
+  /* ---------------- Vehicle modal ---------------- */
+  var vhModal = document.getElementById("vhModal");
+  function openVehicleModal(id) {
+    document.getElementById("vhForm").reset();
+    document.getElementById("vhEditId").value = "";
+    if (id) {
+      var v = Data.getVehicles().find(function (x) { return x.id === id; });
+      if (!v) return;
+      document.getElementById("vhModalTitle").textContent = "Edit Vehicle";
+      document.getElementById("vhEditId").value = v.id;
+      document.getElementById("fVehicleNo").value = v.vehicleNo;
+      document.getElementById("fType").value = v.type;
+      document.getElementById("fDriverName").value = v.driverName || "";
+      document.getElementById("fPurpose").value = v.purpose || "";
+    } else {
+      document.getElementById("vhModalTitle").textContent = "Add Vehicle";
+    }
+    vhModal.classList.add("show");
+  }
+  function closeVehicleModal() { vhModal.classList.remove("show"); }
+  document.getElementById("addVehicleBtn").addEventListener("click", function () { openVehicleModal(null); });
+  document.getElementById("vhModalClose").addEventListener("click", closeVehicleModal);
+  document.getElementById("vhCancelBtn").addEventListener("click", closeVehicleModal);
+  vhModal.addEventListener("click", function (e) { if (e.target === vhModal) closeVehicleModal(); });
+
+  document.getElementById("vhSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("vhForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("vhEditId").value;
+    var record = {
+      id: id || Data.uid("vh"),
+      vehicleNo: document.getElementById("fVehicleNo").value.trim(),
+      type: document.getElementById("fType").value,
+      driverName: document.getElementById("fDriverName").value.trim(),
+      purpose: document.getElementById("fPurpose").value.trim()
+    };
+    var vehicles = Data.getVehicles();
+    if (id) {
+      vehicles = vehicles.map(function (x) { return x.id === id ? record : x; });
+    } else {
+      vehicles = vehicles.concat([record]);
+    }
+    Data.saveVehicles(vehicles);
+    App.showToast(id ? "Vehicle updated." : "Vehicle added.");
+    closeVehicleModal();
+    render();
+  });
+
+  /* ---------------- Log entry modal ---------------- */
+  var vlModal = document.getElementById("vlModal");
+  function updateCostFieldVisibility() {
+    var type = document.querySelector('input[name="lType"]:checked').value;
+    var costField = document.getElementById("lCostField");
+    if (type === "trip") { costField.style.display = "none"; document.getElementById("lCost").value = 0; }
+    else { costField.style.display = ""; }
+  }
+  document.querySelectorAll('input[name="lType"]').forEach(function (r) { r.addEventListener("change", updateCostFieldVisibility); });
+
+  function openLogModal() {
+    document.getElementById("vlForm").reset();
+    refreshVehiclePicker();
+    if (selectedVehicleId) lVehicle.value = selectedVehicleId;
+    document.getElementById("lDate").value = Data.isoDate(Data.today());
+    updateCostFieldVisibility();
+    vlModal.classList.add("show");
+  }
+  function closeLogModal() { vlModal.classList.remove("show"); }
+  document.getElementById("addLogBtn").addEventListener("click", openLogModal);
+  document.getElementById("vlModalClose").addEventListener("click", closeLogModal);
+  document.getElementById("vlCancelBtn").addEventListener("click", closeLogModal);
+  vlModal.addEventListener("click", function (e) { if (e.target === vlModal) closeLogModal(); });
+
+  document.getElementById("vlSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("vlForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var type = document.querySelector('input[name="lType"]:checked').value;
+    var record = {
+      id: Data.uid("vl"),
+      vehicleId: document.getElementById("lVehicle").value,
+      date: document.getElementById("lDate").value,
+      type: type,
+      cost: type === "trip" ? 0 : (parseFloat(document.getElementById("lCost").value) || 0),
+      notes: document.getElementById("lNotes").value.trim()
+    };
+    Data.saveVehicleLogs(Data.getVehicleLogs().concat([record]));
+    App.showToast("Log entry added.");
+    closeLogModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

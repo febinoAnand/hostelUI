@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Expenses · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content" id="pageContent">
+      <div class="page-header-row">
+        <div>
+          <h2>Admin Expenses</h2>
+          <p class="desc">Track day-to-day administrative spending across the hostel.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="admin:create">+ Add Expense</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel-grid even">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Spend by Category</h3>
+          </div>
+          <div id="categoryChart"></div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input type="text" id="searchInput" placeholder="Search description...">
+            </div>
+            <div class="toolbar-filters">
+              <select class="select-filter" id="categoryFilter">
+                <option value="">All categories</option>
+              </select>
+              <span class="toolbar-meta" id="toolbarMeta"></span>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th><th>Description</th><th>Date</th><th>Amount</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="axModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Expense</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="axForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field"><label>Category *</label><select id="fCategory" required></select></div>
+          <div class="field"><label>Amount (₹) *</label><input type="number" id="fAmount" min="1" step="1" required></div>
+          <div class="field"><label>Date *</label><input type="date" id="fDate" required></div>
+          <div class="field span-2"><label>Description</label><input type="text" id="fDescription" placeholder="What was this expense for?"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("admin", "read")) {
+  App.renderShell({ active: "admin-expenses", title: "Admin Expenses", subtitle: "Track administrative spending" });
+
+  var canUpdate = App.can("admin", "update");
+  var canDelete = App.can("admin", "delete");
+  var searchTerm = "", categoryFilterVal = "";
+  var CHIP_COLORS = ["chip-indigo", "chip-cyan", "chip-green", "chip-amber", "chip-pink", "chip-slate", "chip-violet"];
+
+  function chipClassFor(category) {
+    var idx = Data.ADMIN_EXPENSE_CATEGORIES.indexOf(category);
+    return CHIP_COLORS[(idx < 0 ? 0 : idx) % CHIP_COLORS.length];
+  }
+
+  var fCategory = document.getElementById("fCategory");
+  fCategory.innerHTML = Data.ADMIN_EXPENSE_CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
+  var categoryFilter = document.getElementById("categoryFilter");
+  categoryFilter.innerHTML += Data.ADMIN_EXPENSE_CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
+
+  function firstOfMonthIso() {
+    var t = Data.today();
+    return Data.isoDate(new Date(t.getFullYear(), t.getMonth(), 1));
+  }
+  var todayIso = Data.isoDate(Data.today());
+
+  function render() {
+    var expenses = Data.getAdminExpenses();
+    var q = searchTerm.toLowerCase();
+    var filtered = expenses.filter(function (e) {
+      var matchesSearch = !q || (e.description || "").toLowerCase().indexOf(q) > -1 || e.category.toLowerCase().indexOf(q) > -1;
+      var matchesCategory = !categoryFilterVal || e.category === categoryFilterVal;
+      return matchesSearch && matchesCategory;
+    });
+    filtered.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + expenses.length + " expenses";
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (e) {
+        return '<tr>' +
+          '<td><span class="chip ' + chipClassFor(e.category) + '">' + e.category + '</span></td>' +
+          '<td class="desc-cell">' + (e.description || "-") + '</td>' +
+          '<td>' + Data.displayDate(e.date) + '</td>' +
+          '<td class="num-strong">₹' + e.amount.toLocaleString("en-IN") + '</td>' +
+          '<td class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + e.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + e.id + '">' +
+              (canUpdate ? '<button data-edit="' + e.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+              (canDelete ? '<button class="danger" data-del="' + e.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    var totalThisMonth = Business.getAdminExpenseTotal(firstOfMonthIso(), todayIso);
+    var totalAllTime = Business.getAdminExpenseTotal();
+    var categoriesWithSpend = {};
+    expenses.forEach(function (e) { categoriesWithSpend[e.category] = true; });
+    var categoryCount = Object.keys(categoriesWithSpend).length;
+
+    var monthByCategory = {};
+    expenses.filter(function (e) { return e.date >= firstOfMonthIso() && e.date <= todayIso; }).forEach(function (e) {
+      monthByCategory[e.category] = (monthByCategory[e.category] || 0) + e.amount;
+    });
+    var largestCategory = null, largestAmount = 0;
+    Object.keys(monthByCategory).forEach(function (cat) {
+      if (monthByCategory[cat] > largestAmount) { largestAmount = monthByCategory[cat]; largestCategory = cat; }
+    });
+
+    var statGrid = document.getElementById("statGrid");
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalThisMonth) + '</div><div class="stat-label">Spent this month</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalAllTime) + '</div><div class="stat-label">Total spent (all time)</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("fileText") + '</div><div><div class="stat-value">' + categoryCount + '</div><div class="stat-label">Categories with spend</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("trendingUp") + '</div><div><div class="stat-value">' + (largestCategory ? "₹" + Charts.fmtCompact(largestAmount) : "-") + '</div><div class="stat-label">Top category this month' + (largestCategory ? " — " + largestCategory : "") + '</div></div></div>';
+
+    var byCategory = {};
+    expenses.forEach(function (e) { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
+    var chartItems = Object.keys(byCategory).map(function (cat) { return { label: cat, value: byCategory[cat], color: undefined }; });
+    Charts.renderDonutChart(document.getElementById("categoryChart"), chartItems, { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("categoryFilter").addEventListener("change", function (e) { categoryFilterVal = e.target.value; render(); });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("axModal");
+  function openModal(id) {
+    document.getElementById("axForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fDate").value = Data.isoDate(Data.today());
+    if (id) {
+      var e = Data.getAdminExpenses().find(function (x) { return x.id === id; });
+      if (!e) return;
+      document.getElementById("modalTitle").textContent = "Edit Expense";
+      document.getElementById("editId").value = e.id;
+      document.getElementById("fCategory").value = e.category;
+      document.getElementById("fAmount").value = e.amount;
+      document.getElementById("fDate").value = e.date;
+      document.getElementById("fDescription").value = e.description || "";
+    } else {
+      document.getElementById("modalTitle").textContent = "Add Expense";
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("axForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var record = {
+      id: id || Data.uid("ax"),
+      category: document.getElementById("fCategory").value,
+      amount: parseFloat(document.getElementById("fAmount").value) || 0,
+      date: document.getElementById("fDate").value,
+      description: document.getElementById("fDescription").value.trim()
+    };
+    var expenses = Data.getAdminExpenses();
+    if (id) {
+      expenses = expenses.map(function (x) { return x.id === id ? record : x; });
+    } else {
+      expenses = expenses.concat([record]);
+    }
+    Data.saveAdminExpenses(expenses);
+    App.showToast(id ? "Expense updated." : "Expense added.");
+    closeModal();
+    render();
+  });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    var delBtn = e.target.closest("[data-del]");
+    if (editBtn) { openModal(editBtn.getAttribute("data-edit")); }
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      if (confirm("Delete this expense record? This cannot be undone.")) {
+        Data.saveAdminExpenses(Data.getAdminExpenses().filter(function (x) { return x.id !== id; }));
+        App.showToast("Expense deleted.");
+        render();
+      }
+    }
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Master · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Staff Master</h2>
+          <p class="desc">Records &amp; payroll details for every hostel staff member.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="staff:create">+ Add Staff</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by name, designation, phone...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="designationFilter">
+              <option value="">All designations</option>
+            </select>
+            <select class="select-filter" id="statusFilter">
+              <option value="">All status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Staff</th><th>Designation</th><th>Phone</th><th>Join Date</th><th>Monthly Salary</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="sfModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Staff</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="sfForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid cols-3">
+          <div class="field span-2"><label>Full Name *</label><input type="text" id="fName" required></div>
+          <div class="field"><label>Designation *</label><select id="fDesignation" required></select></div>
+          <div class="field"><label>Phone *</label><input type="text" id="fPhone" required></div>
+          <div class="field"><label>Join Date</label><input type="date" id="fJoinDate"></div>
+          <div class="field"><label>Monthly Salary (₹) *</label><input type="number" id="fSalary" min="0" step="500" required></div>
+          <div class="field span-2">
+            <label>Status</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="fStatus" value="active" checked><span>Active</span></label>
+              <label><input type="radio" name="fStatus" value="inactive"><span>Inactive</span></label>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Staff</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("staff", "read")) {
+  App.renderShell({ active: "staff", title: "Staff Master", subtitle: "Records & payroll for hostel staff" });
+
+  var canCreate = App.can("staff", "create");
+  var canUpdate = App.can("staff", "update");
+  var canDelete = App.can("staff", "delete");
+  var searchTerm = "", designationFilterVal = "", statusFilterVal = "";
+
+  var fDesignation = document.getElementById("fDesignation");
+  fDesignation.innerHTML = Data.DESIGNATIONS.map(function (d) { return '<option value="' + d + '">' + d + '</option>'; }).join("");
+
+  var designationFilter = document.getElementById("designationFilter");
+  designationFilter.innerHTML += Data.DESIGNATIONS.map(function (d) { return '<option value="' + d + '">' + d + '</option>'; }).join("");
+
+  function render() {
+    var staff = Data.getStaff();
+    var q = searchTerm.toLowerCase();
+    var filtered = staff.filter(function (s) {
+      var matchesSearch = !q || s.name.toLowerCase().indexOf(q) > -1 || s.designation.toLowerCase().indexOf(q) > -1 || s.phone.toLowerCase().indexOf(q) > -1;
+      var matchesDesignation = !designationFilterVal || s.designation === designationFilterVal;
+      var matchesStatus = !statusFilterVal || (statusFilterVal === "active" ? s.isActive : !s.isActive);
+      return matchesSearch && matchesDesignation && matchesStatus;
+    });
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + staff.length + " staff";
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("idCard") + '<p>No staff found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (s) {
+        return '<tr>' +
+          '<td><a href="staff-detail.html?id=' + s.id + '"><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div>' +
+          '<div><strong>' + s.name + '</strong></div></div></a></td>' +
+          '<td><span class="chip chip-indigo">' + s.designation + '</span></td>' +
+          '<td class="cell-mono">' + s.phone + '</td>' +
+          '<td>' + Data.displayDate(s.joinDate) + '</td>' +
+          '<td>₹' + s.salaryPerMonth.toLocaleString("en-IN") + '</td>' +
+          '<td><span class="status-pill ' + (s.isActive ? "active" : "inactive") + '">' + (s.isActive ? "active" : "inactive") + '</span></td>' +
+          '<td class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + s.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + s.id + '">' +
+              '<button data-view="' + s.id + '">' + App.svg("eye") + ' View</button>' +
+              (canUpdate ? '<button data-edit="' + s.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+              (canDelete ? '<button class="danger" data-del="' + s.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    var statGrid = document.getElementById("statGrid");
+    var active = staff.filter(function (s) { return s.isActive; });
+    var totalPayroll = active.reduce(function (a, s) { return a + s.salaryPerMonth; }, 0);
+    var presentToday = active.filter(function (s) { return Business.getStaffAttendanceToday(s.id) === "present"; }).length;
+    var pendingSalary = Business.getPendingSalaryTotal();
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("idCard") + '</div><div><div class="stat-value">' + active.length + '</div><div class="stat-label">Active staff</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalPayroll) + '</div><div class="stat-label">Monthly payroll</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + presentToday + '</div><div class="stat-label">Present today</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(pendingSalary) + '</div><div class="stat-label">Pending salary</div></div></div>';
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("designationFilter").addEventListener("change", function (e) { designationFilterVal = e.target.value; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("sfModal");
+  function openModal(id) {
+    document.getElementById("sfForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fJoinDate").value = Data.isoDate(Data.today());
+    if (id) {
+      var s = Data.getStaff().find(function (x) { return x.id === id; });
+      if (!s) return;
+      document.getElementById("modalTitle").textContent = "Edit Staff";
+      document.getElementById("editId").value = s.id;
+      document.getElementById("fName").value = s.name;
+      document.getElementById("fDesignation").value = s.designation;
+      document.getElementById("fPhone").value = s.phone;
+      document.getElementById("fJoinDate").value = s.joinDate;
+      document.getElementById("fSalary").value = s.salaryPerMonth;
+      document.querySelector('input[name="fStatus"][value="' + (s.isActive ? "active" : "inactive") + '"]').checked = true;
+    } else {
+      document.getElementById("modalTitle").textContent = "Add Staff";
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("sfForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var record = {
+      id: id || Data.uid("sf"),
+      name: document.getElementById("fName").value.trim(),
+      designation: document.getElementById("fDesignation").value,
+      phone: document.getElementById("fPhone").value.trim(),
+      joinDate: document.getElementById("fJoinDate").value,
+      salaryPerMonth: parseFloat(document.getElementById("fSalary").value) || 0,
+      isActive: document.querySelector('input[name="fStatus"]:checked').value === "active"
+    };
+
+    var staff = Data.getStaff();
+    if (id) {
+      staff = staff.map(function (s) { return s.id === id ? record : s; });
+    } else {
+      staff = staff.concat([record]);
+    }
+    Data.saveStaff(staff);
+    App.showToast(id ? "Staff updated." : "Staff added.");
+    closeModal();
+    render();
+  });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    var viewBtn = e.target.closest("[data-view]");
+    var delBtn = e.target.closest("[data-del]");
+    if (viewBtn) { window.location.href = "staff-detail.html?id=" + viewBtn.getAttribute("data-view"); }
+    if (editBtn) { openModal(editBtn.getAttribute("data-edit")); }
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      if (confirm("Remove this staff record? This cannot be undone.")) {
+        Data.saveStaff(Data.getStaff().filter(function (x) { return x.id !== id; }));
+        App.showToast("Staff removed.");
+        render();
+      }
+    }
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

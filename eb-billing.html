@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EB Bill Sharing · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>EB Bill Sharing</h2>
+          <p class="desc">Enter electricity bills per block and split the cost across rooms by occupancy.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="rooms:create">+ Add EB Bill</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="page-header-row" style="margin-bottom:16px;">
+        <div class="toolbar-filters">
+          <select class="select-filter" id="periodFilter"></select>
+        </div>
+      </div>
+
+      <div id="blockPanels"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ebModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Add EB Bill</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="ebForm">
+        <div class="field-grid">
+          <div class="field"><label>Block *</label><select id="fBlock" required></select></div>
+          <div class="field"><label>Period *</label><input type="text" id="fPeriod" placeholder="2026-09" pattern="\d{4}-\d{2}" required></div>
+          <div class="field"><label>Units Consumed *</label><input type="number" id="fUnits" min="0" required></div>
+          <div class="field"><label>Rate / Unit *</label><input type="number" id="fRate" min="0" step="0.01" value="8.5" required></div>
+          <div class="field span-2"><label>Total Amount</label><input type="text" id="fTotal" disabled></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Bill</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("rooms", "read")) {
+  App.renderShell({ active: "eb-billing", title: "EB Bill Sharing", subtitle: "Per-block electricity billing & auto-split" });
+
+  function distinctBlocks() {
+    var blocks = [];
+    Data.getRooms().forEach(function (r) { if (blocks.indexOf(r.block) === -1) blocks.push(r.block); });
+    blocks.sort();
+    return blocks;
+  }
+  function distinctPeriods() {
+    var periods = [];
+    Data.getEBBills().forEach(function (b) { if (periods.indexOf(b.period) === -1) periods.push(b.period); });
+    periods.sort(function (a, b) { return b.localeCompare(a); });
+    return periods;
+  }
+
+  var canCreate = App.can("rooms", "create");
+
+  var fBlockEl = document.getElementById("fBlock");
+  fBlockEl.innerHTML = distinctBlocks().map(function (b) { return '<option value="' + b + '">' + b + ' Block</option>'; }).join("");
+
+  var periodFilterEl = document.getElementById("periodFilter");
+  var selectedPeriod = "";
+
+  function refreshPeriodOptions(keepSelection) {
+    var periods = distinctPeriods();
+    if (!periods.length) {
+      periodFilterEl.innerHTML = '<option value="">No billing periods yet</option>';
+      selectedPeriod = "";
+      return;
+    }
+    periodFilterEl.innerHTML = periods.map(function (p) { return '<option value="' + p + '">' + p + '</option>'; }).join("");
+    if (keepSelection && periods.indexOf(selectedPeriod) > -1) {
+      periodFilterEl.value = selectedPeriod;
+    } else {
+      selectedPeriod = periods[0];
+      periodFilterEl.value = selectedPeriod;
+    }
+  }
+
+  function render() {
+    var blocks = distinctBlocks();
+    var period = selectedPeriod;
+    var bills = Data.getEBBills().filter(function (b) { return b.period === period; });
+
+    /* ---------------- Stats ---------------- */
+    var totalAmount = 0, shareSum = 0, shareCount = 0;
+    blocks.forEach(function (block) {
+      var res = Business.getEBShareForBlock(block, period);
+      if (res.bill) {
+        totalAmount += res.bill.totalAmount;
+        res.shares.forEach(function (s) {
+          if (s.occupants > 0) { shareSum += s.share; shareCount++; }
+        });
+      }
+    });
+    var avgShare = shareCount ? Math.round(shareSum / shareCount) : 0;
+    var blocksPending = blocks.length - bills.length;
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("bolt") + '</div><div><div class="stat-value">' + bills.length + '</div><div class="stat-label">Blocks billed this period</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("receipt") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(totalAmount) + '</div><div class="stat-label">Total amount billed</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("bed") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(avgShare) + '</div><div class="stat-label">Average per-room share</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("alertTriangle") + '</div><div><div class="stat-value">' + blocksPending + '</div><div class="stat-label">Blocks pending this period</div></div></div>';
+
+    /* ---------------- Block panels ---------------- */
+    var mount = document.getElementById("blockPanels");
+    if (!period) {
+      mount.innerHTML = '<div class="panel"><div class="empty-state">' + App.svg("bolt") + '<p>No electricity bills recorded yet. Add one to get started.</p></div></div>';
+      return;
+    }
+    mount.innerHTML = blocks.map(function (block) {
+      var res = Business.getEBShareForBlock(block, period);
+      var rooms = Data.getRooms().filter(function (r) { return r.block === block; });
+      var headerHtml = '<div class="panel-header"><h3>Block ' + block + '</h3>' +
+        (res.bill ? '<span class="panel-tag">₹' + res.bill.totalAmount.toLocaleString("en-IN") + '</span>' : '<span class="panel-tag">No bill</span>') + '</div>';
+
+      if (!res.bill) {
+        return '<div class="panel" style="margin-bottom:16px;">' + headerHtml +
+          '<div class="empty-state compact">' + App.svg("bolt") + '<p>No bill recorded for Block ' + block + ' in ' + period + '.</p>' +
+          (canCreate ? '<button class="btn btn-outline btn-sm" data-quick-add="' + block + '">+ Add Bill</button>' : "") + '</div></div>';
+      }
+
+      var rowsHtml = rooms.map(function (r) {
+        var share = res.shares.find(function (s) { return s.room.id === r.id; });
+        return '<tr><td>' + r.roomNumber + '</td><td>' + (share ? share.occupants : 0) + '</td><td class="num num-strong">₹' + (share ? share.share.toLocaleString("en-IN") : "0") + '</td></tr>';
+      }).join("");
+
+      return '<div class="panel" style="margin-bottom:16px;">' + headerHtml +
+        '<div class="detail-rows" style="margin-bottom:14px;">' +
+          '<div class="detail-row"><span>Units Consumed</span><strong>' + res.bill.unitsConsumed.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Rate / Unit</span><strong>₹' + res.bill.ratePerUnit + '</strong></div>' +
+          '<div class="detail-row"><span>Total Amount</span><strong>₹' + res.bill.totalAmount.toLocaleString("en-IN") + '</strong></div>' +
+        '</div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Room</th><th>Occupants</th><th class="num">Share</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      '</div>';
+    }).join("");
+  }
+
+  periodFilterEl.addEventListener("change", function (e) { selectedPeriod = e.target.value; render(); });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("ebModal");
+  function computeTotal() {
+    var units = parseFloat(document.getElementById("fUnits").value) || 0;
+    var rate = parseFloat(document.getElementById("fRate").value) || 0;
+    document.getElementById("fTotal").value = "₹" + Math.round(units * rate).toLocaleString("en-IN");
+  }
+  function openModal(prefillBlock) {
+    document.getElementById("ebForm").reset();
+    fBlockEl.innerHTML = distinctBlocks().map(function (b) { return '<option value="' + b + '">' + b + ' Block</option>'; }).join("");
+    if (prefillBlock) fBlockEl.value = prefillBlock;
+    document.getElementById("fPeriod").value = selectedPeriod || "";
+    document.getElementById("fRate").value = "8.5";
+    document.getElementById("fUnits").value = "";
+    computeTotal();
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+  document.getElementById("fUnits").addEventListener("input", computeTotal);
+  document.getElementById("fRate").addEventListener("input", computeTotal);
+
+  document.getElementById("blockPanels").addEventListener("click", function (e) {
+    var quickAdd = e.target.closest("[data-quick-add]");
+    if (quickAdd) { openModal(quickAdd.getAttribute("data-quick-add")); }
+  });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("ebForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var block = fBlockEl.value;
+    var period = document.getElementById("fPeriod").value.trim();
+    var units = parseFloat(document.getElementById("fUnits").value);
+    var rate = parseFloat(document.getElementById("fRate").value);
+    var totalAmount = units * rate;
+
+    var bills = Data.getEBBills();
+    var existing = bills.find(function (b) { return b.block === block && b.period === period; });
+    if (existing) {
+      existing.unitsConsumed = units;
+      existing.ratePerUnit = rate;
+      existing.totalAmount = totalAmount;
+      existing.date = Data.isoDate(Data.today());
+    } else {
+      bills.push({
+        id: Data.uid("eb"), block: block, period: period,
+        unitsConsumed: units, ratePerUnit: rate, totalAmount: totalAmount,
+        date: Data.isoDate(Data.today())
+      });
+    }
+    Data.saveEBBills(bills);
+    App.showToast(existing ? "EB bill updated." : "EB bill added.");
+    closeModal();
+
+    refreshPeriodOptions(true);
+    selectedPeriod = period;
+    periodFilterEl.value = period;
+    render();
+  });
+
+  refreshPeriodOptions(false);
+  render();
+  }
+</script>
+</body>
+</html>

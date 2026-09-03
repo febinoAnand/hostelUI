@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Room List · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Room List</h2>
+          <p class="desc">Live occupancy status across every block and floor.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="rooms:create">+ Add Room</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card" style="margin-bottom:16px;">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by room number...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="blockFilter">
+              <option value="">All blocks</option>
+            </select>
+            <select class="select-filter" id="statusFilter">
+              <option value="">All status</option>
+              <option value="vacant">Vacant</option>
+              <option value="partial">Partial</option>
+              <option value="occupied">Occupied</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="room-grid" id="roomGrid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rmModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Room</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="rmForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field"><label>Room Number *</label><input type="text" id="fRoomNumber" required></div>
+          <div class="field"><label>Block *</label><input type="text" id="fBlock" required maxlength="2" style="text-transform:uppercase"></div>
+          <div class="field"><label>Floor *</label><input type="number" id="fFloor" min="0" required></div>
+          <div class="field"><label>Capacity *</label><input type="number" id="fCapacity" min="1" required></div>
+          <div class="field span-2"><label>Type *</label>
+            <select id="fType" required>
+              <option value="AC">AC</option>
+              <option value="Non-AC">Non-AC</option>
+            </select>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Room</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("rooms", "read")) {
+  App.renderShell({ active: "rooms", title: "Room List", subtitle: "Occupancy across blocks & floors" });
+
+  var canUpdate = App.can("rooms", "update");
+  var canDelete = App.can("rooms", "delete");
+  var searchTerm = "", blockFilterVal = "", statusFilterVal = "";
+
+  function distinctBlocks() {
+    var blocks = [];
+    Data.getRooms().forEach(function (r) { if (blocks.indexOf(r.block) === -1) blocks.push(r.block); });
+    blocks.sort();
+    return blocks;
+  }
+
+  var blockFilterEl = document.getElementById("blockFilter");
+  blockFilterEl.innerHTML = '<option value="">All blocks</option>' + distinctBlocks().map(function (b) {
+    return '<option value="' + b + '">' + b + ' Block</option>';
+  }).join("");
+
+  function render() {
+    var rooms = Data.getRooms();
+    var students = Data.getStudents();
+    var q = searchTerm.toLowerCase();
+    var filtered = rooms.filter(function (r) {
+      var matchesSearch = !q || r.roomNumber.toLowerCase().indexOf(q) > -1;
+      var matchesBlock = !blockFilterVal || r.block === blockFilterVal;
+      var matchesStatus = !statusFilterVal || Business.getRoomStatus(r) === statusFilterVal;
+      return matchesSearch && matchesBlock && matchesStatus;
+    });
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + rooms.length + " rooms";
+
+    var grid = document.getElementById("roomGrid");
+    if (!filtered.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + App.svg("bed") + '<p>No rooms match your filters.</p></div>';
+    } else {
+      grid.innerHTML = filtered.map(function (r) {
+        var status = Business.getRoomStatus(r);
+        var statusCls = status === "occupied" ? " is-occupied" : (status === "partial" ? " is-partial" : "");
+        var occupants = r.occupantIds.map(function (id) {
+          return students.find(function (s) { return s.id === id; });
+        }).filter(Boolean);
+        var bar = "";
+        for (var i = 0; i < r.capacity; i++) {
+          bar += '<span class="' + (i < r.occupantIds.length ? "filled" : "") + '"></span>';
+        }
+        var namesHtml = occupants.length
+          ? occupants.map(function (s) { return s.name; }).join(", ")
+          : "No occupants";
+        return '<div class="room-card' + statusCls + '" data-room="' + r.id + '" style="cursor:pointer;position:relative;">' +
+          '<div class="room-card-top">' +
+            '<strong>' + r.roomNumber + '</strong>' +
+            '<div style="display:flex;gap:2px;">' +
+            (canUpdate ? '<button class="action-trigger" data-edit-room="' + r.id + '" title="Edit room">' + App.svg("edit") + '</button>' : "") +
+            (canDelete ? '<button class="action-trigger" data-del-room="' + r.id + '" title="Delete room">' + App.svg("trash") + '</button>' : "") +
+            '</div>' +
+          '</div>' +
+          '<div class="meta">Block ' + r.block + ' &middot; Floor ' + r.floor + ' &middot; ' + r.type + '</div>' +
+          '<div class="room-occ-bar">' + bar + '</div>' +
+          '<div style="font-size:12px;font-weight:700;margin-bottom:6px;">' + r.occupantIds.length + ' / ' + r.capacity + ' occupied</div>' +
+          '<div style="font-size:11.5px;color:var(--muted);">' + namesHtml + '</div>' +
+        '</div>';
+      }).join("");
+    }
+
+    var stats = Business.getRoomStats();
+    var statGrid = document.getElementById("statGrid");
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("bed") + '</div><div><div class="stat-value">' + stats.total + '</div><div class="stat-label">Total rooms</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("users") + '</div><div><div class="stat-value">' + stats.occupied + '</div><div class="stat-label">Fully occupied</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("userCircle") + '</div><div><div class="stat-value">' + stats.partial + '</div><div class="stat-label">Partially occupied</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("door") + '</div><div><div class="stat-value">' + stats.vacant + '</div><div class="stat-label">Vacant</div></div></div>';
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("blockFilter").addEventListener("change", function (e) { blockFilterVal = e.target.value; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("rmModal");
+  function openModal(id) {
+    document.getElementById("rmForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fType").value = "AC";
+    if (id) {
+      var r = Data.getRooms().find(function (x) { return x.id === id; });
+      if (!r) return;
+      document.getElementById("modalTitle").textContent = "Edit Room";
+      document.getElementById("editId").value = r.id;
+      document.getElementById("fRoomNumber").value = r.roomNumber;
+      document.getElementById("fBlock").value = r.block;
+      document.getElementById("fFloor").value = r.floor;
+      document.getElementById("fCapacity").value = r.capacity;
+      document.getElementById("fType").value = r.type;
+    } else {
+      document.getElementById("modalTitle").textContent = "Add Room";
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("rmForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var rooms = Data.getRooms();
+    var capacity = parseInt(document.getElementById("fCapacity").value, 10);
+
+    if (id) {
+      var existing = rooms.find(function (r) { return r.id === id; });
+      if (!existing) return;
+      if (capacity < existing.occupantIds.length) {
+        App.showToast("Capacity cannot be less than the current occupant count (" + existing.occupantIds.length + ").", true);
+        return;
+      }
+      existing.roomNumber = document.getElementById("fRoomNumber").value.trim();
+      existing.block = document.getElementById("fBlock").value.trim().toUpperCase();
+      existing.floor = parseInt(document.getElementById("fFloor").value, 10);
+      existing.capacity = capacity;
+      existing.type = document.getElementById("fType").value;
+    } else {
+      rooms.push({
+        id: Data.uid("rm"),
+        roomNumber: document.getElementById("fRoomNumber").value.trim(),
+        block: document.getElementById("fBlock").value.trim().toUpperCase(),
+        floor: parseInt(document.getElementById("fFloor").value, 10),
+        capacity: capacity,
+        type: document.getElementById("fType").value,
+        occupantIds: []
+      });
+    }
+    Data.saveRooms(rooms);
+    App.showToast(id ? "Room updated." : "Room added.");
+    closeModal();
+
+    blockFilterEl.innerHTML = '<option value="">All blocks</option>' + distinctBlocks().map(function (b) {
+      return '<option value="' + b + '">' + b + ' Block</option>';
+    }).join("");
+    blockFilterEl.value = blockFilterVal;
+
+    render();
+  });
+
+  document.getElementById("roomGrid").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit-room]");
+    if (editBtn) { openModal(editBtn.getAttribute("data-edit-room")); return; }
+    var delBtn = e.target.closest("[data-del-room]");
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del-room");
+      var room = Data.getRooms().find(function (r) { return r.id === id; });
+      if (!room) return;
+      if (room.occupantIds.length) {
+        App.showToast("Cannot delete a room that currently has occupants.", true);
+        return;
+      }
+      if (confirm("Delete room " + room.roomNumber + "? This cannot be undone.")) {
+        Data.saveRooms(Data.getRooms().filter(function (r) { return r.id !== id; }));
+        App.showToast("Room deleted.");
+        blockFilterEl.innerHTML = '<option value="">All blocks</option>' + distinctBlocks().map(function (b) {
+          return '<option value="' + b + '">' + b + ' Block</option>';
+        }).join("");
+        blockFilterEl.value = blockFilterVal;
+        render();
+      }
+      return;
+    }
+    var card = e.target.closest("[data-room]");
+    if (card) { window.location.href = "room-detail.html?id=" + card.getAttribute("data-room"); }
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

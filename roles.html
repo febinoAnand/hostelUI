@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roles &amp; Permissions · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content" id="pageContent">
+      <div class="page-header-row">
+        <div>
+          <h2>Roles &amp; Permissions</h2>
+          <p class="desc">Define what each role can create, view, update or delete across every module.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="roles:create">+ New Role</button>
+        </div>
+      </div>
+
+      <div id="roleList"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="roleModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <h3 id="modalTitle">New Role</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="roleForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid" style="margin-bottom:16px;">
+          <div class="field"><label>Role Name *</label><input type="text" id="fName" required></div>
+          <div class="field">
+            <label>Role Type</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="fRoleType" value="standard" checked><span>Standard</span></label>
+              <label><input type="radio" name="fRoleType" value="admin"><span>Administrator</span></label>
+            </div>
+          </div>
+          <div class="field span-2"><label>Description</label><textarea id="fDescription" rows="2"></textarea></div>
+        </div>
+
+        <div id="permMatrixWrap">
+          <label style="font-size:12px;font-weight:700;color:var(--text);display:block;margin-bottom:8px;">Module Permissions</label>
+          <div class="perm-table" id="permMatrix"></div>
+        </div>
+        <p class="hint" id="adminHint" style="display:none;margin-top:10px;">Administrator roles automatically have full access to every module — the permission matrix is not used.</p>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Role</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("roles", "read")) {
+  App.renderShell({ active: "roles", title: "Roles & Permissions", subtitle: "Access control for every module" });
+
+  var canUpdate = App.can("roles", "update");
+  var canDelete = App.can("roles", "delete");
+  var CHIP_COLORS = ["chip-indigo", "chip-cyan", "chip-green", "chip-amber", "chip-pink", "chip-slate", "chip-violet"];
+
+  /* ---------------- Build permission matrix markup ---------------- */
+  var permMatrix = document.getElementById("permMatrix");
+  var headHtml = '<div class="perm-head-row"><span>Module</span><span>Create</span><span>Read</span><span>Update</span><span>Delete</span></div>';
+  var rowsHtml = Data.PERMISSION_MODULES.map(function (m) {
+    var switches = Data.ACTIONS.map(function (a) {
+      return '<span><label class="perm-switch"><input type="checkbox" data-mod="' + m.key + '" data-action="' + a + '"><span class="slider"></span></label></span>';
+    }).join("");
+    return '<div class="perm-row"><span>' + m.label + '</span>' + switches + '</div>';
+  }).join("");
+  permMatrix.innerHTML = headHtml + rowsHtml;
+
+  function render() {
+    var roles = Data.getRoles();
+    var users = Data.getUsers();
+    var list = document.getElementById("roleList");
+    if (!roles.length) {
+      list.innerHTML = '<div class="panel"><div class="empty-state">' + App.svg("shield") + '<p>No roles defined yet.</p></div></div>';
+      return;
+    }
+    list.innerHTML = roles.map(function (role) {
+      var userCount = users.filter(function (u) { return u.roleId === role.id; }).length;
+      var moduleChips = Data.PERMISSION_MODULES.filter(function (m) {
+        var p = role.permissions && role.permissions[m.key];
+        return role.isAdmin || (p && (p.create || p.read || p.update || p.delete));
+      }).map(function (m, idx) {
+        return '<span class="chip ' + CHIP_COLORS[idx % CHIP_COLORS.length] + '">' + m.label + '</span>';
+      }).join("");
+
+      var deleteBtn = "";
+      if (canDelete && !role.isSystem) {
+        deleteBtn = '<button class="btn btn-danger-outline btn-sm" data-del="' + role.id + '">' + App.svg("trash") + ' Delete</button>';
+      }
+      var editBtn = canUpdate ? '<button class="btn btn-outline btn-sm" data-edit="' + role.id + '">' + App.svg("edit") + ' Edit</button>' : "";
+
+      return '<div class="role-card">' +
+        '<div class="role-card-top">' +
+          '<div><h4>' + role.name + (role.isAdmin ? ' <span class="badge badge-info">Administrator</span>' : '') + '</h4>' +
+          '<p class="role-desc">' + (role.description || "-") + ' &middot; ' + userCount + ' user(s) assigned</p></div>' +
+          '<div class="role-card-actions">' + editBtn + deleteBtn + '</div>' +
+        '</div>' +
+        (moduleChips ? '<div class="role-card-tags">' + moduleChips + '</div>' : '') +
+      '</div>';
+    }).join("");
+  }
+
+  document.getElementById("roleList").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    var delBtn = e.target.closest("[data-del]");
+    if (editBtn) openModal(editBtn.getAttribute("data-edit"));
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      var role = Data.getRoles().find(function (r) { return r.id === id; });
+      if (!role) return;
+      var userCount = Data.getUsers().filter(function (u) { return u.roleId === id; }).length;
+      if (userCount > 0) {
+        App.showToast("Cannot delete \"" + role.name + "\" — " + userCount + " user(s) are currently assigned to it.", true);
+        return;
+      }
+      if (confirm('Delete the role "' + role.name + '"? This cannot be undone.')) {
+        Data.saveRoles(Data.getRoles().filter(function (r) { return r.id !== id; }));
+        App.showToast("Role deleted.");
+        render();
+      }
+    }
+  });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("roleModal");
+  function setPermSwitches(permissions) {
+    permMatrix.querySelectorAll(".perm-switch input").forEach(function (input) {
+      var mod = input.getAttribute("data-mod"), action = input.getAttribute("data-action");
+      input.checked = !!(permissions && permissions[mod] && permissions[mod][action]);
+    });
+  }
+  function updateAdminVisibility() {
+    var isAdminType = document.querySelector('input[name="fRoleType"]:checked').value === "admin";
+    document.getElementById("permMatrixWrap").style.display = isAdminType ? "none" : "";
+    document.getElementById("adminHint").style.display = isAdminType ? "" : "none";
+  }
+  document.querySelectorAll('input[name="fRoleType"]').forEach(function (r) { r.addEventListener("change", updateAdminVisibility); });
+
+  function openModal(id) {
+    document.getElementById("roleForm").reset();
+    document.getElementById("editId").value = "";
+    setPermSwitches(null);
+    if (id) {
+      var role = Data.getRoles().find(function (x) { return x.id === id; });
+      if (!role) return;
+      document.getElementById("modalTitle").textContent = "Edit Role";
+      document.getElementById("editId").value = role.id;
+      document.getElementById("fName").value = role.name;
+      document.getElementById("fDescription").value = role.description || "";
+      document.querySelector('input[name="fRoleType"][value="' + (role.isAdmin ? "admin" : "standard") + '"]').checked = true;
+      setPermSwitches(role.permissions);
+    } else {
+      document.getElementById("modalTitle").textContent = "New Role";
+      document.querySelector('input[name="fRoleType"][value="standard"]').checked = true;
+    }
+    updateAdminVisibility();
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("roleForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var nameEl = document.getElementById("fName");
+    var id = document.getElementById("editId").value;
+    var isAdminType = document.querySelector('input[name="fRoleType"]:checked').value === "admin";
+    var permissions;
+    if (isAdminType) {
+      permissions = Data.fullPerms(true);
+    } else {
+      permissions = Data.fullPerms(false);
+      permMatrix.querySelectorAll(".perm-switch input").forEach(function (input) {
+        var mod = input.getAttribute("data-mod"), action = input.getAttribute("data-action");
+        permissions[mod][action] = input.checked;
+      });
+    }
+    var existing = id ? Data.getRoles().find(function (x) { return x.id === id; }) : null;
+    var record = {
+      id: id || Data.uid("role"),
+      name: nameEl.value.trim(),
+      description: document.getElementById("fDescription").value.trim(),
+      isAdmin: isAdminType,
+      isSystem: existing ? !!existing.isSystem : false,
+      permissions: permissions
+    };
+    var roles = Data.getRoles();
+    if (id) {
+      roles = roles.map(function (x) { return x.id === id ? record : x; });
+    } else {
+      roles = roles.concat([record]);
+    }
+    Data.saveRoles(roles);
+    App.showToast(id ? "Role updated." : "Role created.");
+    closeModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

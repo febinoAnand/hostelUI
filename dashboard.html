@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="hero-banner">
+        <h2 id="heroGreeting">Welcome back</h2>
+        <p id="heroSub">Here's how HostelHub is running today.</p>
+        <div class="hero-meta" id="heroMeta"></div>
+      </div>
+
+      <div class="module-strip" id="moduleStrip"></div>
+
+      <div class="stat-grid" id="statGrid"></div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Room Occupancy</h3>
+            <a href="rooms.html">View all</a>
+          </div>
+          <div id="occupancyChart"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Alerts</h3>
+            <span class="panel-tag" id="alertCount">0</span>
+          </div>
+          <div id="alertsList" class="activity-list"></div>
+        </div>
+      </div>
+
+      <div class="panel-grid charts-grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Fee Collection</h3></div>
+          <div id="feeChart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Canteen Cost — Last 7 Days</h3></div>
+          <div id="canteenChart"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var currentUser = App.getCurrentUser();
+  App.renderShell({ active: "dashboard", title: "Dashboard", subtitle: "Overview across every module" });
+
+  document.getElementById("heroGreeting").textContent = "Welcome back, " + currentUser.name.split(" ")[0] + " 👋";
+  document.getElementById("heroSub").textContent = "Here's how HostelHub is running today — " + Data.displayDate(Data.isoDate(Data.today())) + ".";
+
+  var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
+  var roomStats = Business.getRoomStats();
+  var feeStats = Business.getHostelFeeStats();
+  var missing = Business.getMissingStudents();
+  var lowStock = Business.getLowStockAlerts();
+  var outpassStats = Business.getOutpassStats();
+  var pendingSalary = Business.getPendingSalaryTotal();
+  var todayInOut = Business.getTodayInOutCounts();
+
+  document.getElementById("heroMeta").innerHTML =
+    '<div><strong>' + students.length + '</strong><span>Active Hostellers</span></div>' +
+    '<div><strong>' + (roomStats.occupied + roomStats.partial) + '/' + roomStats.total + '</strong><span>Rooms In Use</span></div>' +
+    '<div><strong>₹' + Charts.fmtCompact(feeStats.totalDue) + '</strong><span>Fees Due</span></div>' +
+    '<div><strong>' + outpassStats.pending + '</strong><span>Outpass Pending</span></div>';
+
+  /* ---------------- Module strip ---------------- */
+  var moduleStrip = document.getElementById("moduleStrip");
+  moduleStrip.innerHTML =
+    '<a class="module-card c1" href="students.html">' +
+      '<span class="module-icon">' + App.svg("users") + '</span>' +
+      '<span class="module-label">Hostellers</span>' +
+      '<span class="module-value">' + students.length + '</span>' +
+      '<span class="module-sub">' + todayInOut.out + ' currently out</span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c2" href="canteen-inventory.html">' +
+      '<span class="module-icon">' + App.svg("mealTray") + '</span>' +
+      '<span class="module-label">Canteen</span>' +
+      '<span class="module-value">' + Data.getCanteenItems().length + '</span>' +
+      '<span class="module-sub">' + lowStock.length + ' low-stock alert(s)</span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c3" href="staff.html">' +
+      '<span class="module-icon">' + App.svg("idCard") + '</span>' +
+      '<span class="module-label">Staff</span>' +
+      '<span class="module-value">' + Data.getStaff().filter(function (s) { return s.isActive; }).length + '</span>' +
+      '<span class="module-sub">₹' + Charts.fmtCompact(pendingSalary) + ' salary pending</span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c4" href="rooms.html">' +
+      '<span class="module-icon">' + App.svg("bed") + '</span>' +
+      '<span class="module-label">Rooms</span>' +
+      '<span class="module-value">' + roomStats.total + '</span>' +
+      '<span class="module-sub">' + roomStats.vacant + ' vacant</span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c5" href="admin-expenses.html">' +
+      '<span class="module-icon">' + App.svg("wallet") + '</span>' +
+      '<span class="module-label">Admin</span>' +
+      '<span class="module-value">₹' + Charts.fmtCompact(Business.getAdminExpenseTotal()) + '</span>' +
+      '<span class="module-sub">Total expenses logged</span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>';
+
+  /* ---------------- Stat grid ---------------- */
+  var statGrid = document.getElementById("statGrid");
+  function statCard(icon, iconCls, accentCls, value, label) {
+    return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
+      '<div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div></div>';
+  }
+  statGrid.innerHTML =
+    statCard("inout", "icon-indigo", "", todayInOut.in, "Hostellers checked in") +
+    statCard("bell", "icon-red", "accent-red", missing.length, "Missing / overdue alerts") +
+    statCard("receipt", "icon-green", "accent-green", "₹" + Charts.fmtCompact(feeStats.totalPaid), "Fees collected") +
+    statCard("door", "icon-amber", "accent-amber", outpassStats.pending, "Outpass requests pending");
+
+  /* ---------------- Alerts panel ---------------- */
+  var alertsListEl = document.getElementById("alertsList");
+  var allAlerts = [];
+  missing.forEach(function (m) {
+    allAlerts.push({ type: "danger", title: m.student.name + " has not checked in", meta: "Out since " + Data.displayDateTime(m.since) + " (" + Math.round(m.hoursOut) + "h ago)" });
+  });
+  lowStock.forEach(function (l) {
+    allAlerts.push({ type: "warning", title: l.item.name + " is low on stock", meta: "Balance: " + l.balance + " " + l.item.unit + " (below reorder threshold)" });
+  });
+  Data.getLegalCompliance().forEach(function (c) {
+    var st = Business.getComplianceStatus(c);
+    if (st.status !== "valid") allAlerts.push({ type: st.status === "expired" ? "danger" : "warning", title: c.title + (st.status === "expired" ? " has expired" : " expires soon"), meta: st.status === "expired" ? Math.abs(st.days) + " day(s) overdue" : "Due in " + st.days + " day(s)" });
+  });
+  document.getElementById("alertCount").textContent = allAlerts.length;
+  if (!allAlerts.length) {
+    alertsListEl.innerHTML = '<div class="empty-state compact">' + App.svg("check") + '<p>No alerts. Everything looks fine.</p></div>';
+  } else {
+    alertsListEl.innerHTML = allAlerts.slice(0, 8).map(function (a) {
+      return '<div class="activity-item"><div class="activity-dot" style="background:var(--' + a.type + ')"></div>' +
+        '<div><p><strong>' + a.title + '</strong></p><span>' + a.meta + '</span></div></div>';
+    }).join("");
+  }
+
+  /* ---------------- Charts ---------------- */
+  Charts.renderDonutChart(document.getElementById("occupancyChart"), [
+    { label: "Occupied", value: roomStats.occupied, color: "#dc2626" },
+    { label: "Partial", value: roomStats.partial, color: "#d97706" },
+    { label: "Vacant", value: roomStats.vacant, color: "#059669" }
+  ], { centerLabel: "Rooms" });
+
+  Charts.renderDonutChart(document.getElementById("feeChart"), [
+    { label: "Collected", value: feeStats.totalPaid, color: "#059669" },
+    { label: "Due", value: feeStats.totalDue, color: "#dc2626" }
+  ], { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+
+  var last7 = [];
+  for (var d = 6; d >= 0; d--) {
+    var date = Data.isoDate(Data.addDays(Data.today(), -d));
+    last7.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: Business.getCanteenCostTotals(date, date) });
+  }
+  Charts.renderBarChart(document.getElementById("canteenChart"), last7, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+</script>
+</body>
+</html>

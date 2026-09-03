@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="auth-body">
+
+<div class="auth-stripe"></div>
+<div class="auth-glow g1"></div>
+<div class="auth-glow g2"></div>
+
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">HH</div>
+    <h1>HostelHub</h1>
+    <p class="subtitle">Residence &amp; campus operations console</p>
+
+    <div class="form-alert" id="loginAlert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span>Please choose a user to continue.</span>
+    </div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="userSelect">Sign in as</label>
+        <div class="input-wrapper">
+          <svg class="leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/></svg>
+          <select id="userSelect"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <div class="input-wrapper">
+          <svg class="leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="password" id="password" placeholder="Any value works in this demo" value="demo1234">
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-lg btn-block submit-btn">Sign In</button>
+    </form>
+
+    <div class="demo-hint">UI-only demo — no backend, nothing is verified. Pick <b>Vijay Kumar</b> (Administrator) for full access, the <b>Warden</b> for hostellers/rooms/attendance, the <b>Accountant</b> for fees/salary/admin, or the <b>Canteen In-charge</b> for canteen-only access. Manage roles under Roles &amp; Permissions.</div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+  (function () {
+    if (App.isLoggedIn()) { window.location.href = "dashboard.html"; return; }
+    var select = document.getElementById("userSelect");
+    var users = Data.getUsers();
+    var roles = Data.getRoles();
+    select.innerHTML = users.map(function (u) {
+      var role = roles.find(function (r) { return r.id === u.roleId; });
+      return '<option value="' + u.id + '">' + u.name + ' — ' + (role ? role.name : "No role") + '</option>';
+    }).join("");
+
+    document.getElementById("loginForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var userId = select.value;
+      if (!userId) return;
+      App.login(userId);
+      window.location.href = "dashboard.html";
+    });
+  })();
+</script>
+</body>
+</html>

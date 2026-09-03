@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Profile · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profAvatar"></div>
+        <div>
+          <h2 id="profName"></h2>
+          <p class="desc" id="profRole"></p>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <div class="detail-card">
+          <div class="detail-card-header">Account Details</div>
+          <div class="detail-rows" id="accountRows"></div>
+        </div>
+
+        <div class="detail-card">
+          <div class="detail-card-header">My Permissions</div>
+          <div id="permsBody" style="padding:18px;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:22px;">
+        <button class="btn btn-danger-outline" data-logout>Logout</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "profile", title: "My Profile", subtitle: "Your account details and access level" });
+
+  var user = App.getCurrentUser();
+  var role = App.getCurrentRole();
+
+  document.getElementById("profAvatar").textContent = App.initials(user.name);
+  document.getElementById("profName").textContent = user.name;
+  document.getElementById("profRole").textContent = role ? role.name : "";
+
+  document.getElementById("accountRows").innerHTML =
+    '<div class="detail-row"><span>Username</span><strong>' + user.username + '</strong></div>' +
+    '<div class="detail-row"><span>Email</span><strong>' + user.email + '</strong></div>' +
+    '<div class="detail-row"><span>Phone</span><strong>' + (user.phone || "-") + '</strong></div>' +
+    '<div class="detail-row"><span>Role</span><strong>' + (role ? role.name : "-") + '</strong></div>' +
+    '<div class="detail-row"><span>Role Description</span><strong>' + (role && role.description ? role.description : "-") + '</strong></div>';
+
+  var permsBody = document.getElementById("permsBody");
+  if (App.isAdmin()) {
+    permsBody.innerHTML = '<span class="badge badge-success">Full administrator access</span>';
+  } else {
+    var headHtml = '<div class="perm-head-row"><span>Module</span><span>Create</span><span>Read</span><span>Update</span><span>Delete</span></div>';
+    var rowsHtml = Data.PERMISSION_MODULES.map(function (m) {
+      var perms = (role && role.permissions && role.permissions[m.key]) || {};
+      var cells = Data.ACTIONS.map(function (a) {
+        var allowed = !!perms[a];
+        return '<span>' + (allowed
+          ? '<span style="color:var(--success);font-weight:800;">&#10003;</span>'
+          : '<span style="color:var(--muted-2);">&ndash;</span>') + '</span>';
+      }).join("");
+      return '<div class="perm-row"><span>' + m.label + '</span>' + cells + '</div>';
+    }).join("");
+    permsBody.innerHTML = '<div class="perm-table">' + headHtml + rowsHtml + '</div>';
+  }
+</script>
+</body>
+</html>

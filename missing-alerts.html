@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Missing Alerts · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Missing Alerts</h2>
+          <p class="desc">Hostellers who have been out for 10+ hours without checking back in.</p>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel full-panel">
+        <div class="panel-header">
+          <h3>Open Alerts</h3>
+          <span class="panel-tag" id="openCount">0</span>
+        </div>
+        <div id="openList" class="activity-list"></div>
+      </div>
+
+      <div class="panel full-panel">
+        <div class="panel-header">
+          <h3>Recently Resolved</h3>
+        </div>
+        <div id="resolvedList" class="activity-list"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="resolveModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="resolveModalTitle">Resolve Alert</h3>
+      <button class="modal-close" id="resolveModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="resolveForm">
+        <div class="field-grid cols-1">
+          <div class="field">
+            <label>Resolution Notes (optional)</label>
+            <textarea id="fNotes" placeholder="e.g. Confirmed with student, returned to campus..."></textarea>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="resolveCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="resolveSaveBtn">Mark Resolved</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("attendance", "read")) {
+  App.renderShell({ active: "missing-alerts", title: "Missing Alerts", subtitle: "Hostellers overdue to check back in" });
+
+  var canUpdate = App.can("attendance", "update");
+
+  function getOpenAlerts() {
+    var missing = Business.getMissingStudents(10);
+    var resolvedRecords = Data.getMissingAlerts().filter(function (a) { return a.status === "resolved"; });
+    return missing.filter(function (m) {
+      return !resolvedRecords.some(function (r) { return r.studentId === m.student.id && r.raisedAt === m.since; });
+    });
+  }
+
+  function render() {
+    var open = getOpenAlerts();
+    var allAlerts = Data.getMissingAlerts();
+    var todayIso = Data.isoDate(Data.today());
+    var resolvedToday = allAlerts.filter(function (a) { return a.status === "resolved" && a.resolvedAt && a.resolvedAt.slice(0, 10) === todayIso; }).length;
+    var avgHours = open.length ? (open.reduce(function (a, m) { return a + m.hoursOut; }, 0) / open.length) : 0;
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("bell") + '</div><div><div class="stat-value">' + open.length + '</div><div class="stat-label">Open alerts</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + resolvedToday + '</div><div class="stat-label">Resolved today</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + avgHours.toFixed(1) + 'h</div><div class="stat-label">Avg. hours out</div></div></div>';
+
+    document.getElementById("openCount").textContent = open.length;
+    var openList = document.getElementById("openList");
+    if (!open.length) {
+      openList.innerHTML = '<div class="empty-state compact">' + App.svg("checkCircle") + '<p>No open alerts. Everyone is accounted for.</p></div>';
+    } else {
+      openList.innerHTML = open.map(function (m) {
+        return '<div class="activity-item">' +
+          '<div class="cell-avatar" style="margin-top:2px">' + App.initials(m.student.name) + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<p><strong>' + m.student.name + '</strong> <span class="status-pill out" style="margin-left:6px">' + Math.round(m.hoursOut) + 'h out</span></p>' +
+            '<span>Since ' + Data.displayDateTime(m.since) + (m.reason ? ' · ' + m.reason : '') + '</span>' +
+          '</div>' +
+          (canUpdate ? '<button class="btn btn-sm btn-outline" data-resolve="' + m.student.id + '" data-since="' + m.since + '" data-name="' + m.student.name.replace(/"/g, "&quot;") + '">' + App.svg("check") + ' Mark Resolved</button>' : '') +
+        '</div>';
+      }).join("");
+    }
+
+    var resolved = allAlerts.filter(function (a) { return a.status === "resolved"; })
+      .sort(function (a, b) { return new Date(b.resolvedAt) - new Date(a.resolvedAt); })
+      .slice(0, 8);
+    var resolvedList = document.getElementById("resolvedList");
+    if (!resolved.length) {
+      resolvedList.innerHTML = '<div class="empty-state compact">' + App.svg("bell") + '<p>No alerts resolved yet.</p></div>';
+    } else {
+      var students = Data.getStudents();
+      resolvedList.innerHTML = resolved.map(function (r) {
+        var st = students.find(function (x) { return x.id === r.studentId; });
+        return '<div class="activity-item">' +
+          '<div class="activity-dot" style="background:var(--success)"></div>' +
+          '<div><p><strong>' + (st ? st.name : "Unknown hosteller") + '</strong> <span class="badge badge-success">Resolved</span></p>' +
+          '<span>' + (r.notes ? r.notes + " · " : "") + "Resolved " + Data.displayDateTime(r.resolvedAt) + '</span></div>' +
+        '</div>';
+      }).join("");
+    }
+  }
+
+  /* ---------------- Resolve modal ---------------- */
+  var modal = document.getElementById("resolveModal");
+  var targetStudentId = "", targetSince = "";
+  function openResolveModal(studentId, since, name) {
+    targetStudentId = studentId; targetSince = since;
+    document.getElementById("resolveModalTitle").textContent = "Resolve Alert — " + name;
+    document.getElementById("fNotes").value = "";
+    modal.classList.add("show");
+  }
+  function closeResolveModal() { modal.classList.remove("show"); }
+  document.getElementById("resolveModalClose").addEventListener("click", closeResolveModal);
+  document.getElementById("resolveCancelBtn").addEventListener("click", closeResolveModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeResolveModal(); });
+
+  document.getElementById("openList").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-resolve]");
+    if (btn) openResolveModal(btn.getAttribute("data-resolve"), btn.getAttribute("data-since"), btn.getAttribute("data-name"));
+  });
+
+  document.getElementById("resolveSaveBtn").addEventListener("click", function () {
+    if (!targetStudentId) return;
+    var list = Data.getMissingAlerts();
+    list.push({ id: Data.uid("ma"), studentId: targetStudentId, raisedAt: targetSince, status: "resolved", notes: document.getElementById("fNotes").value.trim(), resolvedAt: Data.nowIso() });
+    Data.saveMissingAlerts(list);
+    App.showToast("Alert marked resolved.");
+    closeResolveModal();
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

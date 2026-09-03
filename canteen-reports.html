@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canteen Reports · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Canteen Reports</h2>
+          <p class="desc">Weekly and monthly consumption &amp; cost reports.</p>
+        </div>
+      </div>
+
+      <div class="page-tabs" id="periodTabs">
+        <button type="button" class="page-tab active" data-period="week">This Week</button>
+        <button type="button" class="page-tab" data-period="month">This Month</button>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel-grid charts-grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Daily Inward Cost</h3></div>
+          <div id="dailyCostChart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Cost by Category</h3></div>
+          <div id="catCostChart"></div>
+        </div>
+      </div>
+
+      <div class="panel-header" style="margin:0 0 10px"><h3>Item Consumption</h3></div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Item</th><th>Category</th><th>Qty Purchased</th><th>Cost</th><th>Qty Used</th></tr>
+            </thead>
+            <tbody id="itemBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("canteen", "read")) {
+  App.renderShell({ active: "canteen-reports", title: "Reports", subtitle: "Weekly and monthly consumption & cost reports" });
+
+  var periodType = "week";
+
+  function getReport() { return periodType === "week" ? Business.getWeeklyCanteenReport() : Business.getMonthlyCanteenReport(); }
+  function getDayOffset() { return periodType === "week" ? 6 : 29; }
+
+  function statCard(icon, iconCls, accentCls, value, label) {
+    return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
+      '<div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div></div>';
+  }
+
+  function render() {
+    var report = getReport();
+    var avg = report.meals ? Math.round(report.cost / report.meals) : 0;
+
+    document.getElementById("statGrid").innerHTML =
+      statCard("wallet", "icon-indigo", "", "₹" + Charts.fmtCompact(report.cost), "Total inward cost") +
+      statCard("mealTray", "icon-green", "accent-green", report.meals, "Total meals served") +
+      statCard("coins", "icon-amber", "accent-amber", "₹" + Charts.fmtCompact(avg), "Avg. cost per meal") +
+      statCard("calendar", "icon-violet", "accent-violet", Data.displayDate(report.from) + " – " + Data.displayDate(report.to), "Report period");
+
+    /* Bar chart: daily inward cost across the period */
+    var days = [];
+    var offset = getDayOffset();
+    for (var d = offset; d >= 0; d--) {
+      var date = Data.isoDate(Data.addDays(Data.today(), -d));
+      days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: Business.getCanteenCostTotals(date, date) });
+    }
+    Charts.renderBarChart(document.getElementById("dailyCostChart"), days, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+
+    /* Donut chart: cost breakdown by category within the period */
+    var items = Data.getCanteenItems();
+    var periodInward = Data.getCanteenStock().filter(function (t) { return t.type === "inward" && t.date >= report.from && t.date <= report.to; });
+    var byCat = {};
+    periodInward.forEach(function (t) {
+      var item = items.find(function (i) { return i.id === t.itemId; });
+      if (!item) return;
+      byCat[item.category] = (byCat[item.category] || 0) + t.totalAmount;
+    });
+    var donutItems = Object.keys(byCat).map(function (k) { return { label: k, value: byCat[k] }; });
+    Charts.renderDonutChart(document.getElementById("catCostChart"), donutItems, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); }, centerLabel: "Cost" });
+
+    /* Item consumption table for the period */
+    var allStock = Data.getCanteenStock();
+    var itemBody = document.getElementById("itemBody");
+    if (!items.length) {
+      itemBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("box") + '<p>No items yet.</p></div></td></tr>';
+    } else {
+      itemBody.innerHTML = items.map(function (item) {
+        var txns = allStock.filter(function (t) { return t.itemId === item.id && t.date >= report.from && t.date <= report.to; });
+        var purchased = txns.filter(function (t) { return t.type === "inward"; }).reduce(function (a, t) { return a + t.quantity; }, 0);
+        var cost = txns.filter(function (t) { return t.type === "inward"; }).reduce(function (a, t) { return a + t.totalAmount; }, 0);
+        var used = txns.filter(function (t) { return t.type === "outward"; }).reduce(function (a, t) { return a + t.quantity; }, 0);
+        return '<tr>' +
+          '<td><strong>' + item.name + '</strong></td>' +
+          '<td><span class="chip chip-indigo">' + item.category + '</span></td>' +
+          '<td class="num">' + purchased.toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
+          '<td class="num-strong">₹' + cost.toLocaleString("en-IN") + '</td>' +
+          '<td class="num">' + used.toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+  }
+
+  document.querySelectorAll("#periodTabs .page-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      periodType = btn.getAttribute("data-period");
+      document.querySelectorAll("#periodTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      render();
+    });
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

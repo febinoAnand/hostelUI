@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hostellers Master · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Hostellers Master</h2>
+          <p class="desc">Registration &amp; master data for every resident student.</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="addBtn" data-require="students:create">+ Register Hosteller</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by name, reg no, course...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="statusFilter">
+              <option value="">All status</option>
+              <option value="active">Active</option>
+              <option value="left">Left</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Hosteller</th><th>Reg No.</th><th>Course / Year</th><th>Room</th><th>Guardian</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="stModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <h3 id="modalTitle">Register Hosteller</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="stForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid cols-3">
+          <div class="field span-2"><label>Full Name *</label><input type="text" id="fName" required></div>
+          <div class="field"><label>Registration No. *</label><input type="text" id="fRegNo" required></div>
+          <div class="field"><label>Course *</label><select id="fCourse" required></select></div>
+          <div class="field"><label>Year</label>
+            <select id="fYear"><option value="1">1st Year</option><option value="2">2nd Year</option><option value="3">3rd Year</option><option value="4">4th Year</option></select>
+          </div>
+          <div class="field"><label>Blood Group</label><select id="fBlood"></select></div>
+          <div class="field"><label>Room</label><select id="fRoom"></select></div>
+          <div class="field"><label>Admission Date</label><input type="date" id="fAdmission"></div>
+          <div class="field"><label>Guardian Name</label><input type="text" id="fGuardianName"></div>
+          <div class="field"><label>Guardian Phone</label><input type="text" id="fGuardianPhone"></div>
+          <div class="field span-2"><label>Address</label><input type="text" id="fAddress"></div>
+          <div class="field">
+            <label>Status</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="fStatus" value="active" checked><span>Active</span></label>
+              <label><input type="radio" name="fStatus" value="left"><span>Left</span></label>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Hosteller</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("students", "read")) {
+  App.renderShell({ active: "students", title: "Hostellers Master", subtitle: "Registration & master data" });
+
+  var canCreate = App.can("students", "create");
+  var canUpdate = App.can("students", "update");
+  var canDelete = App.can("students", "delete");
+  var searchTerm = "", statusFilterVal = "";
+
+  var fCourse = document.getElementById("fCourse");
+  fCourse.innerHTML = Data.COURSES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
+  var fBlood = document.getElementById("fBlood");
+  fBlood.innerHTML = Data.BLOOD_GROUPS.map(function (b) { return '<option value="' + b + '">' + b + '</option>'; }).join("");
+
+  function roomOptionsHtml(selectedId) {
+    var rooms = Data.getRooms();
+    var opts = '<option value="">Unassigned</option>';
+    opts += rooms.map(function (r) {
+      var occ = r.occupantIds.length;
+      var full = occ >= r.capacity && r.id !== selectedId;
+      return '<option value="' + r.id + '"' + (r.id === selectedId ? " selected" : "") + (full ? " disabled" : "") + '>' + r.roomNumber + " (" + r.block + " block, " + occ + "/" + r.capacity + (full ? " · full" : "") + ')</option>';
+    }).join("");
+    return opts;
+  }
+
+  function render() {
+    var students = Data.getStudents();
+    var q = searchTerm.toLowerCase();
+    var filtered = students.filter(function (s) {
+      var matchesSearch = !q || s.name.toLowerCase().indexOf(q) > -1 || s.regNo.toLowerCase().indexOf(q) > -1 || s.course.toLowerCase().indexOf(q) > -1;
+      var matchesStatus = !statusFilterVal || s.status === statusFilterVal;
+      return matchesSearch && matchesStatus;
+    });
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + students.length + " hostellers";
+
+    var rooms = Data.getRooms();
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("users") + '<p>No hostellers found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (s) {
+        var room = rooms.find(function (r) { return r.id === s.roomId; });
+        var inOut = s.status === "active" ? Business.getCurrentStatus(s.id) : "";
+        return '<tr>' +
+          '<td><a href="student-detail.html?id=' + s.id + '"><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div>' +
+          '<div><strong>' + s.name + '</strong><span>' + (inOut ? '<span class="status-pill ' + inOut + '" style="padding:1px 7px 1px 6px;font-size:10px">' + inOut + '</span>' : "") + '</span></div></div></a></td>' +
+          '<td class="cell-mono">' + s.regNo + '</td>' +
+          '<td>' + s.course + ' · Yr ' + s.year + '</td>' +
+          '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
+          '<td>' + (s.guardianName || "-") + '<br><span class="cell-mono">' + (s.guardianPhone || "") + '</span></td>' +
+          '<td><span class="status-pill ' + s.status + '">' + s.status + '</span></td>' +
+          '<td class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + s.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + s.id + '">' +
+              '<button data-view="' + s.id + '">' + App.svg("eye") + ' View Profile</button>' +
+              (canUpdate ? '<button data-edit="' + s.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+              (canDelete ? '<button class="danger" data-del="' + s.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    var statGrid = document.getElementById("statGrid");
+    var active = students.filter(function (s) { return s.status === "active"; });
+    var out = active.filter(function (s) { return Business.getCurrentStatus(s.id) === "out"; }).length;
+    statGrid.innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("users") + '</div><div><div class="stat-value">' + active.length + '</div><div class="stat-label">Active hostellers</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("inout") + '</div><div><div class="stat-value">' + out + '</div><div class="stat-label">Currently out</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("bed") + '</div><div><div class="stat-value">' + active.filter(function (s) { return s.roomId; }).length + '</div><div class="stat-label">Room assigned</div></div></div>' +
+      '<div class="stat-card accent-slate"><div class="stat-icon icon-slate">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + students.filter(function (s) { return s.status === "left"; }).length + '</div><div class="stat-label">Left hostel</div></div></div>';
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+
+  /* ---------------- Modal ---------------- */
+  var modal = document.getElementById("stModal");
+  function openModal(id) {
+    document.getElementById("stForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fAdmission").value = Data.isoDate(Data.today());
+    document.getElementById("fRoom").innerHTML = roomOptionsHtml("");
+    if (id) {
+      var s = Data.getStudents().find(function (x) { return x.id === id; });
+      if (!s) return;
+      document.getElementById("modalTitle").textContent = "Edit Hosteller";
+      document.getElementById("editId").value = s.id;
+      document.getElementById("fName").value = s.name;
+      document.getElementById("fRegNo").value = s.regNo;
+      document.getElementById("fCourse").value = s.course;
+      document.getElementById("fYear").value = s.year;
+      document.getElementById("fBlood").value = s.bloodGroup;
+      document.getElementById("fRoom").innerHTML = roomOptionsHtml(s.roomId);
+      document.getElementById("fAdmission").value = s.admissionDate;
+      document.getElementById("fGuardianName").value = s.guardianName || "";
+      document.getElementById("fGuardianPhone").value = s.guardianPhone || "";
+      document.getElementById("fAddress").value = s.address || "";
+      document.querySelector('input[name="fStatus"][value="' + s.status + '"]').checked = true;
+    } else {
+      document.getElementById("modalTitle").textContent = "Register Hosteller";
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var form = document.getElementById("stForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var newRoomId = document.getElementById("fRoom").value || null;
+    var rooms = Data.getRooms();
+    var students = Data.getStudents();
+    var record = {
+      id: id || Data.uid("st"),
+      name: document.getElementById("fName").value.trim(),
+      regNo: document.getElementById("fRegNo").value.trim(),
+      course: document.getElementById("fCourse").value,
+      year: parseInt(document.getElementById("fYear").value, 10),
+      roomId: newRoomId,
+      bloodGroup: document.getElementById("fBlood").value,
+      admissionDate: document.getElementById("fAdmission").value,
+      guardianName: document.getElementById("fGuardianName").value.trim(),
+      guardianPhone: document.getElementById("fGuardianPhone").value.trim(),
+      address: document.getElementById("fAddress").value.trim(),
+      status: document.querySelector('input[name="fStatus"]:checked').value
+    };
+
+    var oldRoomId = id ? (students.find(function (s) { return s.id === id; }) || {}).roomId : null;
+    if (oldRoomId && oldRoomId !== newRoomId) {
+      var oldRoom = rooms.find(function (r) { return r.id === oldRoomId; });
+      if (oldRoom) oldRoom.occupantIds = oldRoom.occupantIds.filter(function (x) { return x !== id; });
+    }
+    if (newRoomId && oldRoomId !== newRoomId) {
+      var newRoom = rooms.find(function (r) { return r.id === newRoomId; });
+      if (newRoom && newRoom.occupantIds.indexOf(record.id) === -1) newRoom.occupantIds.push(record.id);
+    }
+    if (record.status === "left" && newRoomId) {
+      var lroom = rooms.find(function (r) { return r.id === newRoomId; });
+      if (lroom) lroom.occupantIds = lroom.occupantIds.filter(function (x) { return x !== record.id; });
+      record.roomId = null;
+    }
+    Data.saveRooms(rooms);
+
+    if (id) {
+      students = students.map(function (s) { return s.id === id ? record : s; });
+    } else {
+      students = students.concat([record]);
+    }
+    Data.saveStudents(students);
+    App.showToast(id ? "Hosteller updated." : "Hosteller registered.");
+    closeModal();
+    render();
+  });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    var viewBtn = e.target.closest("[data-view]");
+    var delBtn = e.target.closest("[data-del]");
+    if (viewBtn) { window.location.href = "student-detail.html?id=" + viewBtn.getAttribute("data-view"); }
+    if (editBtn) { openModal(editBtn.getAttribute("data-edit")); }
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      if (confirm("Remove this hosteller record? This cannot be undone.")) {
+        var s = Data.getStudents().find(function (x) { return x.id === id; });
+        if (s && s.roomId) {
+          var rooms = Data.getRooms();
+          var room = rooms.find(function (r) { return r.id === s.roomId; });
+          if (room) { room.occupantIds = room.occupantIds.filter(function (x) { return x !== id; }); Data.saveRooms(rooms); }
+        }
+        Data.saveStudents(Data.getStudents().filter(function (x) { return x.id !== id; }));
+        App.showToast("Hosteller removed.");
+        render();
+      }
+    }
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meal In / Out · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Meal In / Out</h2>
+          <p class="desc">Track today's student meal check-ins across breakfast, lunch and dinner.</p>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="page-tabs" id="mealTabs">
+        <button type="button" class="page-tab active" data-meal="breakfast">Breakfast</button>
+        <button type="button" class="page-tab" data-meal="lunch">Lunch</button>
+        <button type="button" class="page-tab" data-meal="dinner">Dinner</button>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by hosteller name...">
+          </div>
+          <div class="toolbar-filters">
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Hosteller</th><th>Room</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("canteen", "read")) {
+  App.renderShell({ active: "canteen-attendance", title: "Meal In / Out", subtitle: "Today's student meal check-ins" });
+
+  var canUpdate = App.can("canteen", "update");
+  var selectedMeal = "breakfast";
+  var searchTerm = "";
+  var todayIso = Data.isoDate(Data.today());
+
+  function render() {
+    var attendance = Data.getCanteenAttendance();
+    var studentsAll = Data.getStudents().filter(function (s) { return s.status === "active"; });
+    var rooms = Data.getRooms();
+    var q = searchTerm.toLowerCase();
+    var filtered = studentsAll.filter(function (s) { return !q || s.name.toLowerCase().indexOf(q) > -1; });
+
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + studentsAll.length + " hostellers";
+
+    var totalToday = Business.getCanteenMealCount(todayIso, todayIso);
+    var bCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "breakfast"; }).length;
+    var lCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "lunch"; }).length;
+    var dCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "dinner"; }).length;
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("mealTray") + '</div><div><div class="stat-value">' + totalToday + '</div><div class="stat-label">Total check-ins today</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + bCount + '</div><div class="stat-label">Breakfast check-ins</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + lCount + '</div><div class="stat-label">Lunch check-ins</div></div></div>' +
+      '<div class="stat-card accent-violet"><div class="stat-icon icon-violet">' + App.svg("calendar") + '</div><div><div class="stat-value">' + dCount + '</div><div class="stat-label">Dinner check-ins</div></div></div>';
+
+    var tbody = document.getElementById("tableBody");
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("mealTray") + '<p>No hostellers found.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(function (s) {
+        var room = rooms.find(function (r) { return r.id === s.roomId; });
+        var rec = attendance.find(function (a) { return a.studentId === s.id && a.meal === selectedMeal && a.date === todayIso; });
+        var present = !!rec;
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div><div><strong>' + s.name + '</strong></div></div></td>' +
+          '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
+          '<td><span class="status-pill ' + (present ? "present" : "absent") + '">' + (present ? "present" : "absent") + '</span></td>' +
+          '<td class="row-actions" style="text-align:left">' +
+            (canUpdate ? '<button class="btn btn-sm ' + (present ? "btn-outline" : "btn-primary") + '" data-toggle="' + s.id + '">' + (present ? "Mark Absent" : "Mark Present") + '</button>' : "") +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+  }
+
+  document.querySelectorAll("#mealTabs .page-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      selectedMeal = btn.getAttribute("data-meal");
+      document.querySelectorAll("#mealTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      render();
+    });
+  });
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-toggle]");
+    if (!btn) return;
+    var sid = btn.getAttribute("data-toggle");
+    var attendance = Data.getCanteenAttendance();
+    var idx = attendance.findIndex(function (a) { return a.studentId === sid && a.meal === selectedMeal && a.date === todayIso; });
+    if (idx > -1) {
+      attendance.splice(idx, 1);
+      Data.saveCanteenAttendance(attendance);
+      App.showToast("Marked absent for " + selectedMeal + ".");
+    } else {
+      attendance.push({ id: Data.uid("ca"), studentId: sid, meal: selectedMeal, date: todayIso, timestamp: Data.nowIso() });
+      Data.saveCanteenAttendance(attendance);
+      App.showToast("Marked present for " + selectedMeal + ".");
+    }
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

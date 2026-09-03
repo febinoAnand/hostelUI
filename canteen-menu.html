@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Menu · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Weekly Menu</h2>
+          <p class="desc">Manage the meal plan for every day of the week.</p>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px; display:flex; align-items:center; gap:14px;">
+        <div class="stat-icon icon-indigo">
+          <span id="weekInfoIcon"></span>
+        </div>
+        <div>
+          <div class="stat-value" id="weekMealsValue">0</div>
+          <div class="stat-label">Meals served this week (<span id="weekRangeLabel"></span>)</div>
+        </div>
+      </div>
+
+      <div class="menu-grid" id="menuGrid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="editMealModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Edit Menu Item</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="mealForm">
+        <input type="hidden" id="emDayHidden">
+        <input type="hidden" id="emMealHidden">
+        <div class="field-grid">
+          <div class="field"><label>Day</label><input type="text" id="emDay" disabled></div>
+          <div class="field"><label>Meal</label><input type="text" id="emMeal" disabled></div>
+          <div class="field span-2"><label>Menu Items</label><textarea id="emItems" rows="3" placeholder="Comma-separated menu items"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Menu</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("canteen", "read")) {
+  App.renderShell({ active: "canteen-menu", title: "Weekly Menu", subtitle: "Meal plan for every day of the week" });
+
+  document.getElementById("weekInfoIcon").innerHTML = App.svg("mealTray");
+  var canUpdate = App.can("canteen", "update");
+
+  function renderWeekInfo() {
+    var report = Business.getWeeklyCanteenReport();
+    document.getElementById("weekMealsValue").textContent = report.meals;
+    document.getElementById("weekRangeLabel").textContent = Data.displayDate(report.from) + " – " + Data.displayDate(report.to);
+  }
+
+  function renderGrid() {
+    var menu = Data.getCanteenMenu();
+    var grid = document.getElementById("menuGrid");
+    grid.innerHTML = Data.DAYS.map(function (day) {
+      var mealsHtml = Data.MEALS.map(function (meal) {
+        var rec = menu.find(function (m) { return m.day === day && m.meal === meal; });
+        var itemsText = rec ? rec.items : "-";
+        var label = meal.charAt(0).toUpperCase() + meal.slice(1);
+        return '<div class="menu-meal">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+          '<span class="meal-label">' + label + '</span>' +
+          (canUpdate ? '<button type="button" class="action-trigger" style="width:22px;height:22px" data-edit-day="' + day + '" data-edit-meal="' + meal + '">' + App.svg("edit") + '</button>' : "") +
+          '</div>' +
+          '<p>' + itemsText + '</p>' +
+        '</div>';
+      }).join("");
+      return '<div class="menu-day-card"><h4>' + day + '</h4>' + mealsHtml + '</div>';
+    }).join("");
+  }
+
+  /* ---------------- Edit modal ---------------- */
+  var modal = document.getElementById("editMealModal");
+  function openEditModal(day, meal) {
+    var menu = Data.getCanteenMenu();
+    var rec = menu.find(function (m) { return m.day === day && m.meal === meal; });
+    document.getElementById("emDay").value = day;
+    document.getElementById("emMeal").value = meal.charAt(0).toUpperCase() + meal.slice(1);
+    document.getElementById("emDayHidden").value = day;
+    document.getElementById("emMealHidden").value = meal;
+    document.getElementById("emItems").value = rec ? rec.items : "";
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+
+  document.getElementById("menuGrid").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-edit-day]");
+    if (!btn) return;
+    openEditModal(btn.getAttribute("data-edit-day"), btn.getAttribute("data-edit-meal"));
+  });
+
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var day = document.getElementById("emDayHidden").value;
+    var meal = document.getElementById("emMealHidden").value;
+    var itemsVal = document.getElementById("emItems").value.trim();
+    var menu = Data.getCanteenMenu();
+    var idx = menu.findIndex(function (m) { return m.day === day && m.meal === meal; });
+    if (idx > -1) {
+      menu[idx].items = itemsVal;
+    } else {
+      menu.push({ id: Data.uid("mn"), day: day, meal: meal, items: itemsVal });
+    }
+    Data.saveCanteenMenu(menu);
+    App.showToast("Menu updated.");
+    closeModal();
+    renderGrid();
+  });
+
+  renderWeekInfo();
+  renderGrid();
+  }
+</script>
+</body>
+</html>
