@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>In / Out Logs · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>In / Out Logs</h2>
+          <p class="desc">Check-in and check-out history for every hosteller.</p>
+        </div>
+      </div>
+
+      <div class="page-header-row" style="margin-bottom:16px;">
+        <div class="toolbar-filters">
+          <label class="hint" style="align-self:center">From</label>
+          <input type="date" class="select-filter" id="reportFrom">
+          <label class="hint" style="align-self:center">To</label>
+          <input type="date" class="select-filter" id="reportTo">
+          <button type="button" class="btn btn-outline btn-sm" data-menu-toggle="quickRange">Quick Select &#9662;</button>
+          <div class="action-menu" data-menu="quickRange">
+            <button type="button" data-quick="week">This Week</button>
+            <button type="button" data-quick="month">This Month</button>
+          </div>
+          <span class="toolbar-meta" id="periodMeta"></span>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel-grid charts-grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Daily Movement</h3></div>
+          <div id="dailyMoveChart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>In vs Out Split</h3></div>
+          <div id="directionSplitChart"></div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by hosteller name...">
+          </div>
+          <div class="toolbar-filters">
+            <select class="select-filter" id="directionFilter">
+              <option value="">All movements</option>
+              <option value="in">Check-in</option>
+              <option value="out">Check-out</option>
+            </select>
+            <span class="toolbar-meta" id="toolbarMeta"></span>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th data-sort="name">Hosteller</th><th data-sort="room">Room</th><th data-sort="direction">Direction</th><th data-sort="timestamp">Date &amp; Time</th><th data-sort="reason">Reason</th></tr>
+            </thead>
+            <tbody id="logBody"></tbody>
+          </table>
+        </div>
+        <div class="table-pagination" id="pagination"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("attendance", "read")) {
+  App.renderShell({ active: "hostel-inout-report", title: "In / Out Logs", subtitle: "Check-in and check-out history for every hosteller" });
+
+  var searchTerm = "", directionFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
+  var fromInput = document.getElementById("reportFrom");
+  var toInput = document.getElementById("reportTo");
+
+  fromInput.value = Data.isoDate(Data.addDays(Data.today(), -6));
+  toInput.value = Data.isoDate(Data.today());
+
+  function getRange() {
+    var today = Data.isoDate(Data.today());
+    var from = fromInput.value || today;
+    var to = toInput.value || today;
+    if (from > to) { var tmp = from; from = to; to = tmp; }
+    return { from: from, to: to };
+  }
+
+  function statCard(icon, iconCls, accentCls, value, label) {
+    return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
+      '<div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div></div>';
+  }
+
+  function render() {
+    var range = getRange();
+    var spanDays = Math.round((new Date(range.to) - new Date(range.from)) / 86400000) + 1;
+    document.getElementById("periodMeta").textContent = spanDays + " day" + (spanDays === 1 ? "" : "s") + " selected";
+
+    var students = Data.getStudents();
+    var studentById = {};
+    students.forEach(function (s) { studentById[s.id] = s; });
+    var rooms = Data.getRooms();
+    var roomById = {};
+    rooms.forEach(function (r) { roomById[r.id] = r; });
+
+    var logsInRange = Data.getStudentInOut().filter(function (l) { return l.timestamp.slice(0, 10) >= range.from && l.timestamp.slice(0, 10) <= range.to; });
+
+    /* ---------------- Stat cards ---------------- */
+    var inCount = logsInRange.filter(function (l) { return l.direction === "in"; }).length;
+    var outCount = logsInRange.filter(function (l) { return l.direction === "out"; }).length;
+
+    document.getElementById("statGrid").innerHTML =
+      statCard("inout", "icon-indigo", "", logsInRange.length, "Total movements") +
+      statCard("checkCircle", "icon-cyan", "accent-cyan", inCount, "Check-ins") +
+      statCard("inout", "icon-amber", "accent-amber", outCount, "Check-outs") +
+      statCard("calendar", "icon-violet", "accent-violet", Data.displayDate(range.from) + " – " + Data.displayDate(range.to), "Report period");
+
+    /* ---------------- Bar chart: daily movement count ---------------- */
+    var days = [];
+    for (var d = 0; d < spanDays; d++) {
+      var date = Data.isoDate(Data.addDays(new Date(range.from), d));
+      var count = logsInRange.filter(function (l) { return l.timestamp.slice(0, 10) === date; }).length;
+      days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: count });
+    }
+    Charts.renderBarChart(document.getElementById("dailyMoveChart"), days, { formatValue: function (v) { return v + ""; } });
+
+    /* ---------------- Donut chart: in vs out split ---------------- */
+    var donutItems = [];
+    if (inCount) donutItems.push({ label: "Check-in", value: inCount });
+    if (outCount) donutItems.push({ label: "Check-out", value: outCount });
+    Charts.renderDonutChart(document.getElementById("directionSplitChart"), donutItems, { formatValue: function (v) { return v + ""; }, centerLabel: "Movements" });
+
+    /* ---------------- Log table ---------------- */
+    var q = searchTerm.toLowerCase();
+    var filtered = logsInRange.filter(function (l) {
+      var s = studentById[l.studentId];
+      var matchesSearch = !q || (s && s.name.toLowerCase().indexOf(q) > -1);
+      var matchesDirection = !directionFilterVal || l.direction === directionFilterVal;
+      return matchesSearch && matchesDirection;
+    });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (l) { var s = studentById[l.studentId]; return s ? s.name : ""; },
+      room: function (l) { var s = studentById[l.studentId]; var r = s && roomById[s.roomId]; return r ? r.roomNumber : ""; },
+      direction: function (l) { return l.direction; },
+      timestamp: function (l) { return l.timestamp; },
+      reason: function (l) { return l.reason || ""; }
+    });
+    filtered.sort(function (a, b) {
+      if (sortState.key) return 0;
+      return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + logsInRange.length + " movements";
+
+    var tbody = document.getElementById("logBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("inout") + '<p>No in/out activity in this period.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = pageItems.map(function (l) {
+        var s = studentById[l.studentId];
+        var room = s && roomById[s.roomId];
+        return '<tr>' +
+          '<td><a href="student-detail.html?id=' + l.studentId + '"><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong></div></div></a></td>' +
+          '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
+          '<td><span class="status-pill ' + l.direction + '">' + l.direction + '</span></td>' +
+          '<td>' + Data.displayDateTime(l.timestamp) + '</td>' +
+          '<td>' + (l.reason || "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
+  }
+
+  [fromInput, toInput].forEach(function (input) {
+    input.addEventListener("change", function () { currentPage = 1; render(); });
+  });
+
+  document.querySelectorAll('[data-menu="quickRange"] [data-quick]').forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var mode = btn.getAttribute("data-quick");
+      toInput.value = Data.isoDate(Data.today());
+      fromInput.value = Data.isoDate(Data.addDays(Data.today(), mode === "week" ? -6 : -29));
+      currentPage = 1;
+      render();
+    });
+  });
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("directionFilter").addEventListener("change", function (e) { directionFilterVal = e.target.value; currentPage = 1; render(); });
+
+  render();
+  }
+</script>
+</body>
+</html>

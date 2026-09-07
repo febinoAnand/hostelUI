@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Staff In / Out Board · HostelHub</title>
+<title>Staff Attendance · HostelHub</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,36 +18,80 @@
     <main class="content">
       <div class="page-header-row">
         <div>
-          <h2>Staff In / Out Board</h2>
-          <p class="desc">Live attendance for every active staff member, today.</p>
+          <h2>Staff Attendance</h2>
+          <p class="desc" id="pageDesc">Live attendance for every active staff member, today.</p>
         </div>
       </div>
 
-      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+      <div class="page-tabs" id="viewTabs">
+        <button type="button" class="page-tab active" data-view="board">Board</button>
+        <button type="button" class="page-tab" data-view="calendar">Calendar</button>
+      </div>
 
-      <div class="table-card">
-        <div class="table-toolbar">
-          <div class="search-box">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
-            <input type="text" id="searchInput" placeholder="Search by name or designation...">
+      <div id="boardView">
+        <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input type="text" id="searchInput" placeholder="Search by name or designation...">
+            </div>
+            <div class="toolbar-filters">
+              <input type="date" class="select-filter" id="dateFilter">
+              <span class="toolbar-meta" id="toolbarMeta"></span>
+            </div>
           </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="status">Status</th><th data-sort="since">Last Update</th><th id="actionHeader">Action</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+          <div class="table-pagination" id="pagination"></div>
+        </div>
+      </div>
+
+      <div id="calendarView" style="display:none">
+        <div class="page-header-row" style="margin-bottom:16px;">
           <div class="toolbar-filters">
-            <span class="toolbar-meta" id="toolbarMeta"></span>
+            <label class="hint" style="align-self:center">Staff</label>
+            <select class="select-filter" id="calStaffSelect"></select>
+            <span class="toolbar-meta" id="calMeta"></span>
           </div>
         </div>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="status">Status</th><th data-sort="inTime">In Time</th><th data-sort="outTime">Out Time</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-          </table>
+        <div class="panel">
+          <div id="staffCalMount"></div>
         </div>
-        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ioModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="ioModalTitle">Mark Attendance</h3>
+      <button class="modal-close" id="ioModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="ioForm">
+        <div class="field-grid cols-1">
+          <div class="field">
+            <label>Reason / Notes (optional)</label>
+            <textarea id="fReason" placeholder="e.g. Sick leave, Half day, Late arrival..."></textarea>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="ioCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="ioSaveBtn">Confirm</button>
+    </div>
   </div>
 </div>
 
@@ -58,13 +102,19 @@
 <script>
   App.requireAuth();
   if (App.guardPermission("staff", "read")) {
-  App.renderShell({ active: "staff-attendance", title: "Staff In / Out Board", subtitle: "Today's live attendance" });
+  App.renderShell({ active: "staff-attendance", title: "Staff Attendance", subtitle: "Today's live attendance & monthly calendar" });
 
   var searchTerm = "";
   var todayIso = Data.isoDate(Data.today());
   var currentPage = 1;
   var PAGE_SIZE = 10;
   var sortState = App.makeSortState();
+  var canUpdate = App.can("staff", "update");
+  document.getElementById("dateFilter").value = todayIso;
+
+  var currentView = "board";
+  var calYear = Data.today().getFullYear(), calMonth = Data.today().getMonth();
+  var calStaffId = null;
 
   function pad2(n) { return n < 10 ? "0" + n : "" + n; }
   function currentTimeHHMM() {
@@ -72,11 +122,18 @@
     return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
   }
 
-  function todayRecordFor(staffId) {
-    return Data.getStaffAttendance().find(function (a) { return a.staffId === staffId && a.date === todayIso; }) || null;
+  function recordForDate(staffId, dateIso) {
+    return Data.getStaffAttendance().find(function (a) { return a.staffId === staffId && a.date === dateIso; }) || null;
   }
 
   function render() {
+    var dateIso = document.getElementById("dateFilter").value || todayIso;
+    var isToday = dateIso === todayIso;
+    document.getElementById("pageDesc").textContent = isToday
+      ? "Live attendance for every active staff member, today."
+      : "Attendance report for " + Data.displayDate(dateIso) + " — who was present and who was absent.";
+    document.getElementById("actionHeader").textContent = isToday ? "Action" : "";
+
     var active = Data.getStaff().filter(function (s) { return s.isActive; });
     var q = searchTerm.toLowerCase();
     var filtered = active.filter(function (s) {
@@ -85,31 +142,31 @@
     filtered = App.sortRows(filtered, sortState, {
       name: function (s) { return s.name; },
       designation: function (s) { return s.designation; },
-      status: function (s) { var rec = todayRecordFor(s.id); return rec ? rec.status : "pending"; },
-      inTime: function (s) { var rec = todayRecordFor(s.id); return rec && rec.inTime ? rec.inTime : ""; },
-      outTime: function (s) { var rec = todayRecordFor(s.id); return rec && rec.outTime ? rec.outTime : ""; }
+      status: function (s) { var rec = recordForDate(s.id, dateIso); return rec ? rec.status : "pending"; },
+      since: function (s) { var rec = recordForDate(s.id, dateIso); return rec && rec.inTime ? rec.inTime : ""; }
     });
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + active.length + " staff";
 
     var tbody = document.getElementById("tableBody");
     var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("inout") + '<p>No staff found.</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("inout") + '<p>No staff found.</p></div></td></tr>';
     } else {
       tbody.innerHTML = pageItems.map(function (s) {
-        var rec = todayRecordFor(s.id);
+        var rec = recordForDate(s.id, dateIso);
         var status = rec ? rec.status : "pending";
-        var statusLabel = rec ? rec.status : "Unmarked";
+        var statusLabel = rec ? (rec.status === "present" ? "Present" : "Absent") : "Unmarked";
+        var nextStatus = status === "present" ? "absent" : "present";
+        var btnLabel = nextStatus === "present" ? "Mark Present" : "Mark Absent";
+        var btnCls = nextStatus === "present" ? "btn-success" : "btn-outline";
         return '<tr>' +
           '<td><a href="staff-detail.html?id=' + s.id + '"><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div>' +
           '<div><strong>' + s.name + '</strong></div></div></a></td>' +
           '<td><span class="chip chip-indigo">' + s.designation + '</span></td>' +
           '<td><span class="status-pill ' + status + '">' + statusLabel + '</span></td>' +
-          '<td>' + (rec && rec.inTime ? rec.inTime : "-") + '</td>' +
-          '<td>' + (rec && rec.outTime ? rec.outTime : "-") + '</td>' +
-          '<td class="row-actions" style="text-align:right;white-space:nowrap">' +
-            '<button class="btn btn-outline btn-sm" data-mark="present" data-id="' + s.id + '" style="margin-right:6px">' + App.svg("checkCircle") + ' Present</button>' +
-            '<button class="btn btn-outline btn-sm" data-mark="absent" data-id="' + s.id + '">' + App.svg("xCircle") + ' Absent</button>' +
+          '<td>' + (rec && rec.inTime ? rec.inTime : "-") + (rec && rec.reason ? ' · ' + rec.reason : '') + '</td>' +
+          '<td class="row-actions" style="text-align:left">' +
+            (isToday && canUpdate ? '<button class="btn btn-sm ' + btnCls + '" data-mark="' + s.id + '" data-status="' + nextStatus + '">' + btnLabel + '</button>' : '') +
           '</td>' +
         '</tr>';
       }).join("");
@@ -122,38 +179,126 @@
     App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
 
     var statGrid = document.getElementById("statGrid");
-    var present = active.filter(function (s) { var r = todayRecordFor(s.id); return r && r.status === "present"; }).length;
-    var absent = active.filter(function (s) { var r = todayRecordFor(s.id); return r && r.status === "absent"; }).length;
+    var present = active.filter(function (s) { var r = recordForDate(s.id, dateIso); return r && r.status === "present"; }).length;
+    var absent = active.filter(function (s) { var r = recordForDate(s.id, dateIso); return r && r.status === "absent"; }).length;
     var unmarked = active.length - present - absent;
     statGrid.innerHTML =
       '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("idCard") + '</div><div><div class="stat-value">' + active.length + '</div><div class="stat-label">Total active staff</div></div></div>' +
-      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + present + '</div><div class="stat-label">Present today</div></div></div>' +
-      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + absent + '</div><div class="stat-label">Absent today</div></div></div>' +
-      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + unmarked + '</div><div class="stat-label">Not yet marked</div></div></div>';
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + present + '</div><div class="stat-label">' + (isToday ? "Present today" : "Present on this date") + '</div></div></div>' +
+      '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + absent + '</div><div class="stat-label">' + (isToday ? "Absent today" : "Absent on this date") + '</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + unmarked + '</div><div class="stat-label">' + (isToday ? "Not yet marked" : "Not marked") + '</div></div></div>';
   }
 
-  function markAttendance(staffId, status) {
+  function setStaffAttendance(staffId, dateIso, status, reason) {
+    reason = reason || "";
     var list = Data.getStaffAttendance();
-    var existing = list.find(function (a) { return a.staffId === staffId && a.date === todayIso; });
-    var inTime = status === "present" ? currentTimeHHMM() : "";
-    if (existing) {
+    var existing = list.find(function (a) { return a.staffId === staffId && a.date === dateIso; });
+    var inTime = status === "present" && dateIso === todayIso ? currentTimeHHMM() : "";
+    if (existing && existing.status === status && !reason) {
+      list = list.filter(function (a) { return a.id !== existing.id; });
+    } else if (existing) {
       list = list.map(function (a) {
         if (a.id !== existing.id) return a;
-        return { id: a.id, staffId: staffId, date: todayIso, status: status, inTime: inTime, outTime: "" };
+        return { id: a.id, staffId: staffId, date: dateIso, status: status, inTime: inTime, outTime: "", reason: reason };
       });
     } else {
-      list = list.concat([{ id: Data.uid("sa"), staffId: staffId, date: todayIso, status: status, inTime: inTime, outTime: "" }]);
+      list = list.concat([{ id: Data.uid("sa"), staffId: staffId, date: dateIso, status: status, inTime: inTime, outTime: "", reason: reason }]);
     }
     Data.saveStaffAttendance(list);
-    App.showToast("Marked " + status + ".");
-    render();
+  }
+
+  function populateStaffSelect() {
+    var active = Data.getStaff().filter(function (s) { return s.isActive; });
+    if (!calStaffId && active.length) calStaffId = active[0].id;
+    var select = document.getElementById("calStaffSelect");
+    select.innerHTML = active.map(function (s) {
+      return '<option value="' + s.id + '"' + (s.id === calStaffId ? " selected" : "") + '>' + s.name + ' — ' + s.designation + '</option>';
+    }).join("");
+  }
+
+  function renderStaffCalendar() {
+    var mount = document.getElementById("staffCalMount");
+    if (!calStaffId) { mount.innerHTML = '<div class="empty-state compact">' + App.svg("idCard") + '<p>No active staff to show.</p></div>'; document.getElementById("calMeta").textContent = ""; return; }
+    var records = Data.getStaffAttendance().filter(function (a) { return a.staffId === calStaffId; });
+    var monthPrefix = calYear + "-" + (calMonth + 1 < 10 ? "0" : "") + (calMonth + 1);
+    var monthRecords = records.filter(function (a) { return a.date.slice(0, 7) === monthPrefix; });
+    var present = monthRecords.filter(function (a) { return a.status === "present"; }).length;
+    var absent = monthRecords.filter(function (a) { return a.status === "absent"; }).length;
+    var pct = (present + absent) ? Math.round((present / (present + absent)) * 100) : 0;
+    document.getElementById("calMeta").textContent = present + " present · " + absent + " absent · " + pct + "% attendance this month";
+
+    App.renderMonthCalendar(mount, {
+      year: calYear, month: calMonth,
+      getDayContent: function (dateIso) {
+        var rec = records.find(function (a) { return a.date === dateIso; });
+        var html = "";
+        if (rec) html += '<span class="cal-event ' + rec.status + '">' + (rec.status === "present" ? "Present" : "Absent") + '</span>';
+        if (canUpdate && dateIso <= todayIso) {
+          html += '<div class="cal-mark-row">' +
+            '<button type="button" class="cal-mark-btn present' + (rec && rec.status === "present" ? " active" : "") + '" data-date="' + dateIso + '" data-status="present">P</button>' +
+            '<button type="button" class="cal-mark-btn absent' + (rec && rec.status === "absent" ? " active" : "") + '" data-date="' + dateIso + '" data-status="absent">A</button>' +
+          '</div>';
+        }
+        return html;
+      },
+      onNav: function (y, m) { calYear = y; calMonth = m; renderStaffCalendar(); }
+    });
   }
 
   document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("dateFilter").addEventListener("change", function () { currentPage = 1; render(); });
+
+  /* ---------------- Mark attendance modal ---------------- */
+  var modal = document.getElementById("ioModal");
+  var targetStaffId = "", targetStatus = "";
+  function openIoModal(staffId, status) {
+    targetStaffId = staffId; targetStatus = status;
+    var s = Data.getStaff().find(function (x) { return x.id === staffId; });
+    document.getElementById("ioModalTitle").textContent = (status === "present" ? "Mark Present — " : "Mark Absent — ") + (s ? s.name : "");
+    document.getElementById("fReason").value = "";
+    modal.classList.add("show");
+  }
+  function closeIoModal() { modal.classList.remove("show"); }
+  document.getElementById("ioModalClose").addEventListener("click", closeIoModal);
+  document.getElementById("ioCancelBtn").addEventListener("click", closeIoModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeIoModal(); });
 
   document.getElementById("tableBody").addEventListener("click", function (e) {
-    var markBtn = e.target.closest("[data-mark]");
-    if (markBtn) { markAttendance(markBtn.getAttribute("data-id"), markBtn.getAttribute("data-mark")); }
+    var btn = e.target.closest("[data-mark]");
+    if (btn) openIoModal(btn.getAttribute("data-mark"), btn.getAttribute("data-status"));
+  });
+
+  document.getElementById("ioSaveBtn").addEventListener("click", function () {
+    if (!targetStaffId) return;
+    setStaffAttendance(targetStaffId, todayIso, targetStatus, document.getElementById("fReason").value.trim());
+    App.showToast(targetStatus === "present" ? "Marked present." : "Marked absent.");
+    closeIoModal();
+    render();
+  });
+
+  document.querySelectorAll("#viewTabs .page-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      currentView = btn.getAttribute("data-view");
+      document.querySelectorAll("#viewTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("boardView").style.display = currentView === "board" ? "" : "none";
+      document.getElementById("calendarView").style.display = currentView === "calendar" ? "" : "none";
+      if (currentView === "calendar") {
+        document.getElementById("pageDesc").textContent = "Browse and mark attendance for any staff member, month by month.";
+        populateStaffSelect(); renderStaffCalendar();
+      } else {
+        render();
+      }
+    });
+  });
+
+  document.getElementById("calStaffSelect").addEventListener("change", function (e) { calStaffId = e.target.value; renderStaffCalendar(); });
+
+  document.getElementById("staffCalMount").addEventListener("click", function (e) {
+    var btn = e.target.closest(".cal-mark-btn");
+    if (!btn) return;
+    setStaffAttendance(calStaffId, btn.getAttribute("data-date"), btn.getAttribute("data-status"));
+    renderStaffCalendar();
   });
 
   render();

@@ -816,9 +816,20 @@ ul{ list-style:none; margin:0; padding:0; }
 .cal-event.out{ background:var(--warning-tint); color:var(--warning); }
 .cal-event.home{ background:var(--warning-tint); color:var(--warning); }
 .cal-event.return{ background:var(--success-tint); color:var(--success); }
+.cal-event.present{ background:var(--success-tint); color:var(--success); }
+.cal-event.absent{ background:var(--danger-tint); color:var(--danger); }
+.cal-mark-row{ display:flex; gap:4px; margin-top:auto; }
+.cal-mark-btn{
+  flex:1; border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  border-radius:5px; font-size:10px; font-weight:700; padding:2px 0; cursor:pointer;
+}
+.cal-mark-btn:hover{ background:var(--surface-2); }
+.cal-mark-btn.present.active{ background:var(--success); border-color:var(--success); color:#fff; }
+.cal-mark-btn.absent.active{ background:var(--danger); border-color:var(--danger); color:#fff; }
 @media (max-width:760px){
   .cal-cell{ min-height:44px; }
   .cal-dow-cell{ font-size:9px; }
+  .cal-mark-row{ display:none; }
 }
 
 /* ============================================================

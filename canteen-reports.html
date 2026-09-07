@@ -76,13 +76,22 @@
   if (App.guardPermission("canteen", "read")) {
   App.renderShell({ active: "canteen-reports", title: "Reports", subtitle: "Weekly and monthly consumption & cost reports" });
 
-  var periodType = "week";
   var currentPage = 1;
   var PAGE_SIZE = 10;
   var sortState = App.makeSortState();
+  var fromInput = document.getElementById("reportFrom");
+  var toInput = document.getElementById("reportTo");
 
-  function getReport() { return periodType === "week" ? Business.getWeeklyCanteenReport() : Business.getMonthlyCanteenReport(); }
-  function getDayOffset() { return periodType === "week" ? 6 : 29; }
+  fromInput.value = Data.isoDate(Data.addDays(Data.today(), -6));
+  toInput.value = Data.isoDate(Data.today());
+
+  function getReport() {
+    var today = Data.isoDate(Data.today());
+    var from = fromInput.value || today;
+    var to = toInput.value || today;
+    if (from > to) { var tmp = from; from = to; to = tmp; }
+    return { from: from, to: to, cost: Business.getCanteenUsageCostTotals(from, to), meals: Business.getCanteenMealCount(from, to) };
+  }
 
   function statCard(icon, iconCls, accentCls, value, label) {
     return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
@@ -99,11 +108,13 @@
       statCard("coins", "icon-amber", "accent-amber", "₹" + Charts.fmtCompact(avg), "Avg. cost per meal") +
       statCard("calendar", "icon-violet", "accent-violet", Data.displayDate(report.from) + " – " + Data.displayDate(report.to), "Report period");
 
+    var spanDays = Math.round((new Date(report.to) - new Date(report.from)) / 86400000) + 1;
+    document.getElementById("periodMeta").textContent = spanDays + " day" + (spanDays === 1 ? "" : "s") + " selected";
+
     /* Bar chart: daily usage cost across the period */
     var days = [];
-    var offset = getDayOffset();
-    for (var d = offset; d >= 0; d--) {
-      var date = Data.isoDate(Data.addDays(Data.today(), -d));
+    for (var d = 0; d < spanDays; d++) {
+      var date = Data.isoDate(Data.addDays(new Date(report.from), d));
       days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: Business.getCanteenUsageCostTotals(date, date) });
     }
     Charts.renderBarChart(document.getElementById("dailyCostChart"), days, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
@@ -159,11 +170,15 @@
     App.bindSortableTable(itemBody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
-  document.querySelectorAll("#periodTabs .page-tab").forEach(function (btn) {
+  [fromInput, toInput].forEach(function (input) {
+    input.addEventListener("change", function () { currentPage = 1; render(); });
+  });
+
+  document.querySelectorAll('[data-menu="quickRange"] [data-quick]').forEach(function (btn) {
     btn.addEventListener("click", function () {
-      periodType = btn.getAttribute("data-period");
-      document.querySelectorAll("#periodTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
-      btn.classList.add("active");
+      var mode = btn.getAttribute("data-quick");
+      toInput.value = Data.isoDate(Data.today());
+      fromInput.value = Data.isoDate(Data.addDays(Data.today(), mode === "week" ? -6 : -29));
       currentPage = 1;
       render();
     });
