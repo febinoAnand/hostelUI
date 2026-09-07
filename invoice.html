@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row no-print">
+        <a class="btn btn-outline btn-sm" href="fees.html">&larr; Back to Payments</a>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="printBtn">Print / Save PDF</button>
+        </div>
+      </div>
+
+      <div id="notFound" style="display:none" class="empty-state">
+        <p>Hosteller record not found.</p>
+      </div>
+
+      <div id="invoiceBody" style="display:none" class="invoice-card">
+        <div class="invoice-head">
+          <div class="invoice-brand">
+            <div class="brand-mark">HH</div>
+            <div><strong>HostelHub</strong><span>Campus Residence Console</span></div>
+          </div>
+          <div class="invoice-meta">
+            <h2>Fee Invoice</h2>
+            <div>Invoice No. <strong id="iNo"></strong></div>
+            <div>Generated <strong id="iDate"></strong></div>
+          </div>
+        </div>
+
+        <div class="invoice-parties">
+          <div>
+            <h4>Billed To</h4>
+            <p id="iStudent"></p>
+          </div>
+          <div>
+            <h4>Hostel Details</h4>
+            <p id="iHostel"></p>
+          </div>
+        </div>
+
+        <div class="invoice-summary-grid" id="invoiceStats"></div>
+
+        <div id="feeStructureBlock" style="margin-bottom:26px">
+          <h3 class="invoice-section-title">Fee Structure</h3>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Component</th><th class="num">Amount</th></tr></thead>
+              <tbody id="feeStructureBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <h3 class="invoice-section-title">Transaction History</h3>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Mode</th><th>Receipt No.</th><th class="num">Amount</th></tr></thead>
+            <tbody id="ledgerBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("fees", "read")) {
+  App.renderShell({ active: "fees", title: "Invoice", subtitle: "Full payment statement" });
+
+  var params = new URLSearchParams(window.location.search);
+  var studentId = params.get("id");
+  var student = Data.getStudents().find(function (s) { return s.id === studentId; });
+
+  if (!student) {
+    document.getElementById("notFound").style.display = "flex";
+  } else {
+    document.getElementById("invoiceBody").style.display = "block";
+    var room = Data.getRooms().find(function (r) { return r.id === student.roomId; });
+    var summary = Business.getFeeSummary(student.id);
+
+    document.getElementById("iNo").textContent = "INV-" + student.regNo;
+    document.getElementById("iDate").textContent = Data.displayDate(Data.isoDate(Data.today()));
+
+    document.getElementById("iStudent").innerHTML =
+      "<strong>" + student.name + "</strong><br>" + student.regNo + " · " + student.course + " · Year " + student.year +
+      (student.guardianPhone ? "<br>Guardian: " + (student.guardianName || "-") + " (" + student.guardianPhone + ")" : "");
+
+    document.getElementById("iHostel").innerHTML =
+      (room ? "Room " + room.roomNumber + " · " + room.block + " Block · " + room.type : "No room assigned") +
+      "<br>Admitted " + Data.displayDate(student.admissionDate) +
+      "<br>Status: <span class=\"status-pill " + student.status + "\">" + student.status + "</span>";
+
+    function statCard(icon, iconCls, accentCls, value, label) {
+      return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div><div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div></div>';
+    }
+    document.getElementById("invoiceStats").innerHTML =
+      statCard("receipt", "icon-indigo", "", "₹" + summary.invoiced.toLocaleString("en-IN"), "Total invoiced") +
+      statCard("wallet", "icon-green", "accent-green", "₹" + summary.paid.toLocaleString("en-IN"), "Total paid") +
+      statCard("alertTriangle", "icon-red", "accent-red", "₹" + summary.due.toLocaleString("en-IN"), "Balance due") +
+      statCard("checkCircle", "icon-cyan", "accent-cyan", summary.status, "Payment status");
+
+    /* Fee structure breakdown, matched by the invoice line's description against known structures */
+    var invoiceEntries = summary.ledger.filter(function (l) { return l.type === "invoice"; });
+    var structures = Data.getFeeStructures();
+    var matchedStructure = null;
+    invoiceEntries.forEach(function (inv) {
+      if (matchedStructure) return;
+      matchedStructure = structures.find(function (fs) { return fs.name === inv.description; }) || null;
+    });
+    var structureBlock = document.getElementById("feeStructureBlock");
+    if (matchedStructure) {
+      var comp = matchedStructure.components;
+      document.getElementById("feeStructureBody").innerHTML =
+        '<tr><td>Hostel Fee</td><td class="num">₹' + comp.hostel.toLocaleString("en-IN") + '</td></tr>' +
+        '<tr><td>Mess Fee</td><td class="num">₹' + comp.mess.toLocaleString("en-IN") + '</td></tr>' +
+        '<tr><td>Maintenance</td><td class="num">₹' + comp.maintenance.toLocaleString("en-IN") + '</td></tr>' +
+        '<tr><td>Miscellaneous</td><td class="num">₹' + comp.misc.toLocaleString("en-IN") + '</td></tr>' +
+        '<tr><td><strong>Total (' + matchedStructure.name + ')</strong></td><td class="num-strong">₹' + matchedStructure.total.toLocaleString("en-IN") + '</td></tr>';
+    } else {
+      structureBlock.style.display = "none";
+    }
+
+    /* Full transaction history, oldest first with a running balance */
+    var ledger = summary.ledger.slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); });
+    var running = 0;
+    document.getElementById("ledgerBody").innerHTML = ledger.length ? ledger.map(function (l) {
+      running += l.type === "invoice" ? l.amount : -l.amount;
+      return '<tr>' +
+        '<td>' + Data.displayDate(l.date) + '</td>' +
+        '<td>' + (l.description || "-") + '</td>' +
+        '<td><span class="chip ' + (l.type === "invoice" ? "chip-slate" : "chip-green") + '">' + l.type + '</span></td>' +
+        '<td>' + (l.mode || "-") + '</td>' +
+        '<td class="cell-mono">' + (l.receiptNo || "-") + '</td>' +
+        '<td class="num num-strong">' + (l.type === "invoice" ? "₹" + l.amount.toLocaleString("en-IN") : "-₹" + l.amount.toLocaleString("en-IN")) + '</td>' +
+      '</tr>';
+    }).join("") : '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("receipt") + '<p>No transactions recorded yet.</p></div></td></tr>';
+  }
+
+  document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
+  }
+</script>
+</body>
+</html>

@@ -19,35 +19,70 @@
       <div class="page-header-row">
         <div>
           <h2>Meal In / Out</h2>
-          <p class="desc">Track today's student meal check-ins across breakfast, lunch and dinner.</p>
+          <p class="desc" id="pageDesc">Track today's student meal check-ins across breakfast, lunch and dinner.</p>
         </div>
       </div>
 
-      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
-
-      <div class="page-tabs" id="mealTabs">
-        <button type="button" class="page-tab active" data-meal="breakfast">Breakfast</button>
-        <button type="button" class="page-tab" data-meal="lunch">Lunch</button>
-        <button type="button" class="page-tab" data-meal="dinner">Dinner</button>
+      <div class="page-tabs" id="modeTabs">
+        <button type="button" class="page-tab active" data-mode="daily">Daily</button>
+        <button type="button" class="page-tab" data-mode="monthly">Monthly Grid</button>
       </div>
 
-      <div class="table-card">
-        <div class="table-toolbar">
-          <div class="search-box">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
-            <input type="text" id="searchInput" placeholder="Search by hosteller name...">
-          </div>
-          <div class="toolbar-filters">
-            <span class="toolbar-meta" id="toolbarMeta"></span>
-          </div>
+      <div id="dailyView">
+        <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+        <div class="page-tabs" id="mealTabs">
+          <button type="button" class="page-tab active" data-meal="breakfast">Breakfast</button>
+          <button type="button" class="page-tab" data-meal="lunch">Lunch</button>
+          <button type="button" class="page-tab" data-meal="dinner">Dinner</button>
         </div>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr><th>Hosteller</th><th>Room</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-          </table>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input type="text" id="searchInput" placeholder="Search by hosteller name...">
+            </div>
+            <div class="toolbar-filters">
+              <input type="date" class="select-filter" id="dateFilter">
+              <span class="toolbar-meta" id="toolbarMeta"></span>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr><th data-sort="name">Hosteller</th><th data-sort="room">Room</th><th data-sort="status">Status</th><th></th></tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+          <div class="table-pagination" id="pagination"></div>
+        </div>
+      </div>
+
+      <div id="monthlyView" style="display:none">
+        <div class="stat-grid stat-grid-tight" id="monthStatGrid"></div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input type="text" id="monthSearchInput" placeholder="Search by hosteller name...">
+            </div>
+            <div class="toolbar-filters">
+              <button type="button" class="btn btn-outline btn-sm" id="monthPrevBtn">&lsaquo;</button>
+              <strong id="monthLabel" style="min-width:130px;text-align:center"></strong>
+              <button type="button" class="btn btn-outline btn-sm" id="monthNextBtn">&rsaquo;</button>
+              <span class="toolbar-meta" id="monthMeta"></span>
+            </div>
+          </div>
+          <p class="hint" style="padding:10px 18px 0">Click a B / L / D cell to toggle that meal for that day. Legend: <span class="meal-toggle on b" style="pointer-events:none">B</span> Breakfast &nbsp; <span class="meal-toggle on l" style="pointer-events:none">L</span> Lunch &nbsp; <span class="meal-toggle on d" style="pointer-events:none">D</span> Dinner</p>
+          <div class="table-scroll">
+            <table class="data-table meal-grid-table" id="monthGridTable">
+              <thead id="monthGridHead"></thead>
+              <tbody id="monthGridBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </main>
@@ -67,45 +102,68 @@
   var selectedMeal = "breakfast";
   var searchTerm = "";
   var todayIso = Data.isoDate(Data.today());
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
+  document.getElementById("dateFilter").value = todayIso;
 
   function render() {
+    var dateIso = document.getElementById("dateFilter").value || todayIso;
+    var isToday = dateIso === todayIso;
+    document.getElementById("pageDesc").textContent = isToday
+      ? "Track today's student meal check-ins across breakfast, lunch and dinner."
+      : "Meal report for " + Data.displayDate(dateIso) + " — who checked in for each meal.";
+
     var attendance = Data.getCanteenAttendance();
     var studentsAll = Data.getStudents().filter(function (s) { return s.status === "active"; });
     var rooms = Data.getRooms();
     var q = searchTerm.toLowerCase();
     var filtered = studentsAll.filter(function (s) { return !q || s.name.toLowerCase().indexOf(q) > -1; });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (s) { return s.name; },
+      room: function (s) { var r = rooms.find(function (x) { return x.id === s.roomId; }); return r ? r.roomNumber : ""; },
+      status: function (s) { return attendance.some(function (a) { return a.studentId === s.id && a.meal === selectedMeal && a.date === dateIso; }) ? 1 : 0; }
+    });
 
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + studentsAll.length + " hostellers";
 
-    var totalToday = Business.getCanteenMealCount(todayIso, todayIso);
-    var bCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "breakfast"; }).length;
-    var lCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "lunch"; }).length;
-    var dCount = attendance.filter(function (a) { return a.date === todayIso && a.meal === "dinner"; }).length;
+    var totalForDate = Business.getCanteenMealCount(dateIso, dateIso);
+    var bCount = attendance.filter(function (a) { return a.date === dateIso && a.meal === "breakfast"; }).length;
+    var lCount = attendance.filter(function (a) { return a.date === dateIso && a.meal === "lunch"; }).length;
+    var dCount = attendance.filter(function (a) { return a.date === dateIso && a.meal === "dinner"; }).length;
 
     document.getElementById("statGrid").innerHTML =
-      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("mealTray") + '</div><div><div class="stat-value">' + totalToday + '</div><div class="stat-label">Total check-ins today</div></div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("mealTray") + '</div><div><div class="stat-value">' + totalForDate + '</div><div class="stat-label">' + (isToday ? "Total check-ins today" : "Total check-ins") + '</div></div></div>' +
       '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + bCount + '</div><div class="stat-label">Breakfast check-ins</div></div></div>' +
       '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + lCount + '</div><div class="stat-label">Lunch check-ins</div></div></div>' +
       '<div class="stat-card accent-violet"><div class="stat-icon icon-violet">' + App.svg("calendar") + '</div><div><div class="stat-value">' + dCount + '</div><div class="stat-label">Dinner check-ins</div></div></div>';
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("mealTray") + '<p>No hostellers found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
+      tbody.innerHTML = pageItems.map(function (s) {
         var room = rooms.find(function (r) { return r.id === s.roomId; });
-        var rec = attendance.find(function (a) { return a.studentId === s.id && a.meal === selectedMeal && a.date === todayIso; });
+        var rec = attendance.find(function (a) { return a.studentId === s.id && a.meal === selectedMeal && a.date === dateIso; });
         var present = !!rec;
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div><div><strong>' + s.name + '</strong></div></div></td>' +
           '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
           '<td><span class="status-pill ' + (present ? "present" : "absent") + '">' + (present ? "present" : "absent") + '</span></td>' +
           '<td class="row-actions" style="text-align:left">' +
-            (canUpdate ? '<button class="btn btn-sm ' + (present ? "btn-outline" : "btn-primary") + '" data-toggle="' + s.id + '">' + (present ? "Mark Absent" : "Mark Present") + '</button>' : "") +
+            (isToday && canUpdate ? '<button class="btn btn-sm ' + (present ? "btn-outline" : "btn-primary") + '" data-toggle="' + s.id + '">' + (present ? "Mark Absent" : "Mark Present") + '</button>' : "") +
           '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
   document.querySelectorAll("#mealTabs .page-tab").forEach(function (btn) {
@@ -113,28 +171,130 @@
       selectedMeal = btn.getAttribute("data-meal");
       document.querySelectorAll("#mealTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
+      currentPage = 1;
       render();
     });
   });
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("dateFilter").addEventListener("change", function () { currentPage = 1; render(); });
 
   document.getElementById("tableBody").addEventListener("click", function (e) {
     var btn = e.target.closest("[data-toggle]");
     if (!btn) return;
+    var dateIso = document.getElementById("dateFilter").value || todayIso;
     var sid = btn.getAttribute("data-toggle");
     var attendance = Data.getCanteenAttendance();
-    var idx = attendance.findIndex(function (a) { return a.studentId === sid && a.meal === selectedMeal && a.date === todayIso; });
+    var idx = attendance.findIndex(function (a) { return a.studentId === sid && a.meal === selectedMeal && a.date === dateIso; });
     if (idx > -1) {
       attendance.splice(idx, 1);
       Data.saveCanteenAttendance(attendance);
       App.showToast("Marked absent for " + selectedMeal + ".");
     } else {
-      attendance.push({ id: Data.uid("ca"), studentId: sid, meal: selectedMeal, date: todayIso, timestamp: Data.nowIso() });
+      attendance.push({ id: Data.uid("ca"), studentId: sid, meal: selectedMeal, date: dateIso, timestamp: Data.nowIso() });
       Data.saveCanteenAttendance(attendance);
       App.showToast("Marked present for " + selectedMeal + ".");
     }
     render();
+  });
+
+  /* ---------------- Monthly Grid ---------------- */
+  var MEALS_ORDER = ["breakfast", "lunch", "dinner"];
+  var MEAL_LETTER = { breakfast: "B", lunch: "L", dinner: "D" };
+  var todayForGrid = Data.today();
+  var monthYear = todayForGrid.getFullYear(), monthMonth = todayForGrid.getMonth();
+  var monthSearch = "";
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+
+  function renderMonthGrid() {
+    var y = monthYear, m = monthMonth;
+    var dim = daysInMonth(y, m);
+    document.getElementById("monthLabel").textContent = new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
+    var q = monthSearch.toLowerCase();
+    var filtered = students.filter(function (s) { return !q || s.name.toLowerCase().indexOf(q) > -1; });
+
+    var fromIso = y + "-" + pad2(m + 1) + "-01";
+    var toIso = y + "-" + pad2(m + 1) + "-" + pad2(dim);
+    var attendance = Data.getCanteenAttendance();
+    var monthAttendance = attendance.filter(function (a) { return a.date >= fromIso && a.date <= toIso; });
+
+    document.getElementById("monthMeta").textContent = filtered.length + " of " + students.length + " hostellers · " + monthAttendance.length + " check-ins this month";
+
+    var bCount = monthAttendance.filter(function (a) { return a.meal === "breakfast"; }).length;
+    var lCount = monthAttendance.filter(function (a) { return a.meal === "lunch"; }).length;
+    var dCount = monthAttendance.filter(function (a) { return a.meal === "dinner"; }).length;
+    document.getElementById("monthStatGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("mealTray") + '</div><div><div class="stat-value">' + monthAttendance.length + '</div><div class="stat-label">Total check-ins this month</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("clock") + '</div><div><div class="stat-value">' + bCount + '</div><div class="stat-label">Breakfast check-ins</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + lCount + '</div><div class="stat-label">Lunch check-ins</div></div></div>' +
+      '<div class="stat-card accent-violet"><div class="stat-icon icon-violet">' + App.svg("calendar") + '</div><div><div class="stat-value">' + dCount + '</div><div class="stat-label">Dinner check-ins</div></div></div>';
+
+    var dayHeaderCells = "", subHeaderCells = "";
+    for (var d = 1; d <= dim; d++) {
+      dayHeaderCells += '<th colspan="3" class="day-num">' + d + '</th>';
+      subHeaderCells += '<th class="meal-sub day-start">B</th><th class="meal-sub">L</th><th class="meal-sub">D</th>';
+    }
+    document.getElementById("monthGridHead").innerHTML =
+      '<tr><th class="name-col" rowspan="2">Hosteller</th>' + dayHeaderCells + '</tr>' +
+      '<tr>' + subHeaderCells + '</tr>';
+
+    var gridBody = document.getElementById("monthGridBody");
+    if (!filtered.length) {
+      gridBody.innerHTML = '<tr><td colspan="' + (dim * 3 + 1) + '"><div class="empty-state compact">' + App.svg("mealTray") + '<p>No hostellers found.</p></div></td></tr>';
+      return;
+    }
+    gridBody.innerHTML = filtered.map(function (s) {
+      var cells = '<td class="name-col"><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div><div><strong>' + s.name + '</strong></div></div></td>';
+      for (var d = 1; d <= dim; d++) {
+        var dateIso = y + "-" + pad2(m + 1) + "-" + pad2(d);
+        MEALS_ORDER.forEach(function (meal, mi) {
+          var present = attendance.some(function (a) { return a.studentId === s.id && a.meal === meal && a.date === dateIso; });
+          var letter = MEAL_LETTER[meal];
+          var cls = "meal-toggle " + letter.toLowerCase() + (present ? " on" : "");
+          cells += '<td class="' + (mi === 0 ? "day-start" : "") + '">' +
+            '<button type="button" class="' + cls + '" data-toggle-cell data-sid="' + s.id + '" data-meal="' + meal + '" data-date="' + dateIso + '" title="' + s.name + ' — ' + meal + " " + Data.displayDate(dateIso) + '"' + (canUpdate ? "" : " disabled") + '>' + letter + '</button>' +
+          '</td>';
+        });
+      }
+      return '<tr>' + cells + '</tr>';
+    }).join("");
+  }
+
+  document.getElementById("monthGridBody").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-toggle-cell]");
+    if (!btn || btn.disabled) return;
+    var sid = btn.getAttribute("data-sid"), meal = btn.getAttribute("data-meal"), dateIso = btn.getAttribute("data-date");
+    var attendance = Data.getCanteenAttendance();
+    var idx = attendance.findIndex(function (a) { return a.studentId === sid && a.meal === meal && a.date === dateIso; });
+    if (idx > -1) { attendance.splice(idx, 1); }
+    else { attendance.push({ id: Data.uid("ca"), studentId: sid, meal: meal, date: dateIso, timestamp: Data.nowIso() }); }
+    Data.saveCanteenAttendance(attendance);
+    renderMonthGrid();
+  });
+
+  document.getElementById("monthSearchInput").addEventListener("input", function (e) { monthSearch = e.target.value; renderMonthGrid(); });
+  document.getElementById("monthPrevBtn").addEventListener("click", function () {
+    monthMonth--; if (monthMonth < 0) { monthMonth = 11; monthYear--; }
+    renderMonthGrid();
+  });
+  document.getElementById("monthNextBtn").addEventListener("click", function () {
+    monthMonth++; if (monthMonth > 11) { monthMonth = 0; monthYear++; }
+    renderMonthGrid();
+  });
+
+  document.querySelectorAll("#modeTabs .page-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var mode = btn.getAttribute("data-mode");
+      document.querySelectorAll("#modeTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dailyView").style.display = mode === "daily" ? "" : "none";
+      document.getElementById("monthlyView").style.display = mode === "monthly" ? "" : "none";
+      if (mode === "monthly") renderMonthGrid();
+    });
   });
 
   render();

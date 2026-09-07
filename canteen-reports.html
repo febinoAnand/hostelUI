@@ -23,20 +23,30 @@
         </div>
       </div>
 
-      <div class="page-tabs" id="periodTabs">
-        <button type="button" class="page-tab active" data-period="week">This Week</button>
-        <button type="button" class="page-tab" data-period="month">This Month</button>
+      <div class="page-header-row" style="margin-bottom:16px;">
+        <div class="toolbar-filters">
+          <label class="hint" style="align-self:center">From</label>
+          <input type="date" class="select-filter" id="reportFrom">
+          <label class="hint" style="align-self:center">To</label>
+          <input type="date" class="select-filter" id="reportTo">
+          <button type="button" class="btn btn-outline btn-sm" data-menu-toggle="quickRange">Quick Select &#9662;</button>
+          <div class="action-menu" data-menu="quickRange">
+            <button type="button" data-quick="week">This Week</button>
+            <button type="button" data-quick="month">This Month</button>
+          </div>
+          <span class="toolbar-meta" id="periodMeta"></span>
+        </div>
       </div>
 
       <div class="stat-grid stat-grid-tight" id="statGrid"></div>
 
       <div class="panel-grid charts-grid">
         <div class="panel">
-          <div class="panel-header"><h3>Daily Inward Cost</h3></div>
+          <div class="panel-header"><h3>Daily Usage Cost</h3></div>
           <div id="dailyCostChart"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><h3>Cost by Category</h3></div>
+          <div class="panel-header"><h3>Usage Cost by Category</h3></div>
           <div id="catCostChart"></div>
         </div>
       </div>
@@ -46,11 +56,12 @@
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Item</th><th>Category</th><th>Qty Purchased</th><th>Cost</th><th>Qty Used</th></tr>
+              <tr><th data-sort="name">Item</th><th data-sort="category">Category</th><th data-sort="purchased">Qty Purchased</th><th data-sort="used">Qty Used</th><th data-sort="cost">Usage Cost</th></tr>
             </thead>
             <tbody id="itemBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -66,6 +77,9 @@
   App.renderShell({ active: "canteen-reports", title: "Reports", subtitle: "Weekly and monthly consumption & cost reports" });
 
   var periodType = "week";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   function getReport() { return periodType === "week" ? Business.getWeeklyCanteenReport() : Business.getMonthlyCanteenReport(); }
   function getDayOffset() { return periodType === "week" ? 6 : 29; }
@@ -80,25 +94,25 @@
     var avg = report.meals ? Math.round(report.cost / report.meals) : 0;
 
     document.getElementById("statGrid").innerHTML =
-      statCard("wallet", "icon-indigo", "", "₹" + Charts.fmtCompact(report.cost), "Total inward cost") +
+      statCard("wallet", "icon-indigo", "", "₹" + Charts.fmtCompact(report.cost), "Total usage cost") +
       statCard("mealTray", "icon-green", "accent-green", report.meals, "Total meals served") +
       statCard("coins", "icon-amber", "accent-amber", "₹" + Charts.fmtCompact(avg), "Avg. cost per meal") +
       statCard("calendar", "icon-violet", "accent-violet", Data.displayDate(report.from) + " – " + Data.displayDate(report.to), "Report period");
 
-    /* Bar chart: daily inward cost across the period */
+    /* Bar chart: daily usage cost across the period */
     var days = [];
     var offset = getDayOffset();
     for (var d = offset; d >= 0; d--) {
       var date = Data.isoDate(Data.addDays(Data.today(), -d));
-      days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: Business.getCanteenCostTotals(date, date) });
+      days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: Business.getCanteenUsageCostTotals(date, date) });
     }
     Charts.renderBarChart(document.getElementById("dailyCostChart"), days, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
 
-    /* Donut chart: cost breakdown by category within the period */
+    /* Donut chart: usage cost breakdown by category within the period */
     var items = Data.getCanteenItems();
-    var periodInward = Data.getCanteenStock().filter(function (t) { return t.type === "inward" && t.date >= report.from && t.date <= report.to; });
+    var periodUsed = Data.getCanteenStock().filter(function (t) { return (t.type === "outward" || t.type === "mess") && t.date >= report.from && t.date <= report.to; });
     var byCat = {};
-    periodInward.forEach(function (t) {
+    periodUsed.forEach(function (t) {
       var item = items.find(function (i) { return i.id === t.itemId; });
       if (!item) return;
       byCat[item.category] = (byCat[item.category] || 0) + t.totalAmount;
@@ -108,24 +122,41 @@
 
     /* Item consumption table for the period */
     var allStock = Data.getCanteenStock();
+    function txnsFor(item) { return allStock.filter(function (t) { return t.itemId === item.id && t.date >= report.from && t.date <= report.to; }); }
+    function purchasedOf(item) { return txnsFor(item).filter(function (t) { return t.type === "inward"; }).reduce(function (a, t) { return a + t.quantity; }, 0); }
+    function usedOf(item) { return txnsFor(item).filter(function (t) { return t.type === "outward" || t.type === "mess"; }).reduce(function (a, t) { return a + t.quantity; }, 0); }
+    function costOf(item) { return txnsFor(item).filter(function (t) { return t.type === "outward" || t.type === "mess"; }).reduce(function (a, t) { return a + t.totalAmount; }, 0); }
+
+    var sortedItems = App.sortRows(items, sortState, {
+      name: function (item) { return item.name; },
+      category: function (item) { return item.category; },
+      purchased: purchasedOf,
+      cost: costOf,
+      used: usedOf
+    });
+
     var itemBody = document.getElementById("itemBody");
+    var pageItems = App.paginate(sortedItems, currentPage, PAGE_SIZE);
     if (!items.length) {
       itemBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("box") + '<p>No items yet.</p></div></td></tr>';
     } else {
-      itemBody.innerHTML = items.map(function (item) {
-        var txns = allStock.filter(function (t) { return t.itemId === item.id && t.date >= report.from && t.date <= report.to; });
-        var purchased = txns.filter(function (t) { return t.type === "inward"; }).reduce(function (a, t) { return a + t.quantity; }, 0);
-        var cost = txns.filter(function (t) { return t.type === "inward"; }).reduce(function (a, t) { return a + t.totalAmount; }, 0);
-        var used = txns.filter(function (t) { return t.type === "outward"; }).reduce(function (a, t) { return a + t.quantity; }, 0);
+      itemBody.innerHTML = pageItems.map(function (item) {
         return '<tr>' +
           '<td><strong>' + item.name + '</strong></td>' +
           '<td><span class="chip chip-indigo">' + item.category + '</span></td>' +
-          '<td class="num">' + purchased.toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
-          '<td class="num-strong">₹' + cost.toLocaleString("en-IN") + '</td>' +
-          '<td class="num">' + used.toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
+          '<td class="num">' + purchasedOf(item).toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
+          '<td class="num">' + usedOf(item).toLocaleString("en-IN") + ' ' + item.unit + '</td>' +
+          '<td class="num-strong">₹' + costOf(item).toLocaleString("en-IN") + '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: items.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+
+    App.bindSortableTable(itemBody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
   document.querySelectorAll("#periodTabs .page-tab").forEach(function (btn) {
@@ -133,6 +164,7 @@
       periodType = btn.getAttribute("data-period");
       document.querySelectorAll("#periodTabs .page-tab").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
+      currentPage = 1;
       render();
     });
   });

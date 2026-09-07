@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>App Settings</h2>
+          <p class="desc">General configuration for HostelHub.</p>
+        </div>
+      </div>
+
+      <div class="panel full-panel">
+        <div class="panel-header">
+          <h3>Missing Alerts</h3>
+        </div>
+        <form id="settingsForm">
+          <div class="field-grid cols-3">
+            <div class="field">
+              <label>Alert Threshold (hours) *</label>
+              <input type="number" id="fMissingHours" min="1" max="72" step="1" required>
+              <span class="hint">Hostellers still "out" past this many hours show up on the Missing Alerts page.</span>
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <button type="submit" class="btn btn-primary" id="settingsSaveBtn" data-require="settings:update">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("settings", "read")) {
+  App.renderShell({ active: "settings", title: "Settings", subtitle: "General configuration for HostelHub" });
+
+  var canUpdate = App.can("settings", "update");
+  var hoursInput = document.getElementById("fMissingHours");
+
+  function render() {
+    var settings = Data.getSettings();
+    hoursInput.value = settings.missingAlertHours;
+    hoursInput.disabled = !canUpdate;
+    document.getElementById("settingsSaveBtn").style.display = canUpdate ? "" : "none";
+  }
+
+  document.getElementById("settingsForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!canUpdate) return;
+    var form = e.target;
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var settings = Data.getSettings();
+    settings.missingAlertHours = parseInt(hoursInput.value, 10);
+    Data.saveSettings(settings);
+    App.showToast("Settings saved.");
+    render();
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>

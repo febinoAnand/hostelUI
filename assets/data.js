@@ -51,13 +51,14 @@
   var PERMISSION_MODULES = [
     { key: "students", label: "Hostellers" },
     { key: "attendance", label: "In/Out & Alerts" },
-    { key: "fees", label: "Fees & Payments" },
+    { key: "fees", label: "Payments & Fee Structure" },
     { key: "outpass", label: "Outpass & Travel" },
     { key: "canteen", label: "Canteen" },
     { key: "staff", label: "Staff" },
     { key: "rooms", label: "Rooms" },
     { key: "admin", label: "Admin" },
-    { key: "roles", label: "Roles & Permissions" }
+    { key: "roles", label: "Roles & Permissions" },
+    { key: "settings", label: "App Settings" }
   ];
   var ACTIONS = ["create", "read", "update", "delete"];
   function fullPerms(val) {
@@ -426,6 +427,11 @@
     return list;
   });
 
+  /* ---------------- App settings ---------------- */
+  var settingsStore = makeStore("hh_settings_v1", function () {
+    return { missingAlertHours: 10 };
+  });
+
   /* ---------------- Public API ---------------- */
   window.Data = {
     uid: uid, isoDate: isoDate, displayDate: displayDate, displayDateTime: displayDateTime,
@@ -461,6 +467,8 @@
     getAdminExpenses: adminExpensesStore.get, saveAdminExpenses: adminExpensesStore.save,
     getLegalCompliance: legalComplianceStore.get, saveLegalCompliance: legalComplianceStore.save,
     getVehicles: vehiclesStore.get, saveVehicles: vehiclesStore.save,
-    getVehicleLogs: vehicleLogsStore.get, saveVehicleLogs: vehicleLogsStore.save
+    getVehicleLogs: vehicleLogsStore.get, saveVehicleLogs: vehicleLogsStore.save,
+
+    getSettings: settingsStore.get, saveSettings: settingsStore.save
   };
 })();

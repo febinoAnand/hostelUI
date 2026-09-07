@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Expenses · HostelHub</title>
+<title>Expenses · HostelHub</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,7 +18,7 @@
     <main class="content" id="pageContent">
       <div class="page-header-row">
         <div>
-          <h2>Admin Expenses</h2>
+          <h2>Expenses</h2>
           <p class="desc">Track day-to-day administrative spending across the hostel.</p>
         </div>
         <div class="page-header-actions">
@@ -53,12 +53,13 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Category</th><th>Description</th><th>Date</th><th>Amount</th><th></th>
+                  <th data-sort="category">Category</th><th data-sort="description">Description</th><th data-sort="date">Date</th><th data-sort="amount">Amount</th><th></th>
                 </tr>
               </thead>
               <tbody id="tableBody"></tbody>
             </table>
           </div>
+          <div class="table-pagination" id="pagination"></div>
         </div>
       </div>
     </main>
@@ -96,11 +97,14 @@
 <script>
   App.requireAuth();
   if (App.guardPermission("admin", "read")) {
-  App.renderShell({ active: "admin-expenses", title: "Admin Expenses", subtitle: "Track administrative spending" });
+  App.renderShell({ active: "admin-expenses", title: "Expenses", subtitle: "Track administrative spending" });
 
   var canUpdate = App.can("admin", "update");
   var canDelete = App.can("admin", "delete");
   var searchTerm = "", categoryFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
   var CHIP_COLORS = ["chip-indigo", "chip-cyan", "chip-green", "chip-amber", "chip-pink", "chip-slate", "chip-violet"];
 
   function chipClassFor(category) {
@@ -128,14 +132,21 @@
       return matchesSearch && matchesCategory;
     });
     filtered.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+    filtered = App.sortRows(filtered, sortState, {
+      category: function (e) { return e.category; },
+      description: function (e) { return e.description || ""; },
+      date: function (e) { return e.date; },
+      amount: function (e) { return e.amount; }
+    });
 
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + expenses.length + " expenses";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (e) {
+      tbody.innerHTML = pageItems.map(function (e) {
         return '<tr>' +
           '<td><span class="chip ' + chipClassFor(e.category) + '">' + e.category + '</span></td>' +
           '<td class="desc-cell">' + (e.description || "-") + '</td>' +
@@ -151,6 +162,12 @@
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
 
     var totalThisMonth = Business.getAdminExpenseTotal(firstOfMonthIso(), todayIso);
     var totalAllTime = Business.getAdminExpenseTotal();
@@ -180,8 +197,8 @@
     Charts.renderDonutChart(document.getElementById("categoryChart"), chartItems, { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("categoryFilter").addEventListener("change", function (e) { categoryFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("categoryFilter").addEventListener("change", function (e) { categoryFilterVal = e.target.value; currentPage = 1; render(); });
 
   /* ---------------- Modal ---------------- */
   var modal = document.getElementById("axModal");

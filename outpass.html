@@ -49,12 +49,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Hosteller</th><th>Reason</th><th>From</th><th>To</th><th>Status</th><th>Approver</th><th></th>
+                <th data-sort="name">Hosteller</th><th data-sort="reason">Reason</th><th data-sort="from">From</th><th data-sort="to">To</th><th data-sort="status">Status</th><th data-sort="approver">Approver</th><th style="text-align:right">Actions</th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -63,11 +64,12 @@
 <div class="modal-overlay" id="opModal">
   <div class="modal-box">
     <div class="modal-header">
-      <h3>New Outpass Request</h3>
+      <h3 id="opModalTitle">New Outpass Request</h3>
       <button class="modal-close" id="opModalClose">&times;</button>
     </div>
     <div class="modal-body">
       <form id="opForm">
+        <input type="hidden" id="editId">
         <div class="field-grid">
           <div class="field span-2"><label>Hosteller *</label><select id="fStudent" required></select></div>
           <div class="field span-2"><label>Reason *</label><input type="text" id="fReason" required placeholder="e.g. Family function"></div>
@@ -94,6 +96,9 @@
 
   var canUpdate = App.can("outpass", "update");
   var searchTerm = "", statusFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   function studentOptionsHtml() {
     var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
@@ -119,21 +124,39 @@
       return matchesSearch && matchesStatus;
     }).sort(function (a, b) { return new Date(b.fromDatetime) - new Date(a.fromDatetime); });
 
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (o) { var s = students.find(function (x) { return x.id === o.studentId; }); return s ? s.name : ""; },
+      reason: function (o) { return o.reason; },
+      from: function (o) { return o.fromDatetime; },
+      to: function (o) { return o.toDatetime; },
+      status: function (o) { return o.status; },
+      approver: function (o) { return o.approvedBy || ""; }
+    });
+
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + list.length + " outpasses";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("door") + '<p>No outpass requests found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (o) {
+      tbody.innerHTML = pageItems.map(function (o) {
         var s = students.find(function (x) { return x.id === o.studentId; });
         var room = s ? rooms.find(function (r) { return r.id === s.roomId; }) : null;
-        var actions = "-";
+        var menuItems = "";
         if (canUpdate && o.status === "pending") {
-          actions = '<button class="btn btn-sm btn-success" data-approve="' + o.id + '">Approve</button> <button class="btn btn-sm btn-danger-outline" data-reject="' + o.id + '">Reject</button>';
+          menuItems += '<button data-approve="' + o.id + '">' + App.svg("checkCircle") + ' Approve</button>' +
+            '<button class="danger" data-reject="' + o.id + '">' + App.svg("xCircle") + ' Reject</button>';
         } else if (canUpdate && o.status === "approved") {
-          actions = '<button class="btn btn-sm btn-outline" data-return="' + o.id + '">Mark Returned</button>';
+          menuItems += '<button data-return="' + o.id + '">' + App.svg("door") + ' Mark Returned</button>';
         }
+        if (canUpdate) {
+          menuItems += '<button data-edit="' + o.id + '">' + App.svg("edit") + ' Edit</button>';
+        }
+        var actions = menuItems ?
+          '<button class="action-trigger" data-menu-toggle="' + o.id + '">' + App.svg("dots") + '</button>' +
+          '<div class="action-menu" data-menu="' + o.id + '">' + menuItems + '</div>'
+          : "-";
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong><span>' + (room ? room.roomNumber : "") + '</span></div></div></td>' +
           '<td>' + o.reason + '</td>' +
@@ -141,19 +164,28 @@
           '<td>' + Data.displayDateTime(o.toDatetime) + '</td>' +
           '<td><span class="status-pill ' + o.status + '">' + o.status + '</span></td>' +
           '<td>' + (o.approvedBy || "-") + '</td>' +
-          '<td class="row-actions" style="text-align:left;white-space:nowrap">' + actions + '</td>' +
+          '<td class="row-actions">' + actions + '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; currentPage = 1; render(); });
 
   document.getElementById("tableBody").addEventListener("click", function (e) {
     var approveBtn = e.target.closest("[data-approve]");
     var rejectBtn = e.target.closest("[data-reject]");
     var returnBtn = e.target.closest("[data-return]");
+    var editBtn = e.target.closest("[data-edit]");
+    if (editBtn) { openModal(editBtn.getAttribute("data-edit")); return; }
     if (!approveBtn && !rejectBtn && !returnBtn) return;
     var list = Data.getOutpass();
     if (approveBtn) {
@@ -175,15 +207,31 @@
     render();
   });
 
-  /* ---------------- New Outpass modal ---------------- */
+  /* ---------------- New / Edit Outpass modal ---------------- */
   var modal = document.getElementById("opModal");
-  function openModal() {
+  function openModal(id) {
     document.getElementById("opForm").reset();
+    document.getElementById("editId").value = "";
     document.getElementById("fStudent").innerHTML = studentOptionsHtml();
+
+    if (id) {
+      var o = Data.getOutpass().find(function (x) { return x.id === id; });
+      if (!o) return;
+      document.getElementById("opModalTitle").textContent = "Edit Outpass Request";
+      document.getElementById("opSaveBtn").textContent = "Save Changes";
+      document.getElementById("editId").value = o.id;
+      document.getElementById("fStudent").value = o.studentId;
+      document.getElementById("fReason").value = o.reason;
+      document.getElementById("fFrom").value = o.fromDatetime;
+      document.getElementById("fTo").value = o.toDatetime;
+    } else {
+      document.getElementById("opModalTitle").textContent = "New Outpass Request";
+      document.getElementById("opSaveBtn").textContent = "Submit Request";
+    }
     modal.classList.add("show");
   }
   function closeModal() { modal.classList.remove("show"); }
-  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
   document.getElementById("opModalClose").addEventListener("click", closeModal);
   document.getElementById("opCancelBtn").addEventListener("click", closeModal);
   modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
@@ -191,16 +239,31 @@
   document.getElementById("opSaveBtn").addEventListener("click", function () {
     var form = document.getElementById("opForm");
     if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
     var list = Data.getOutpass();
-    list.push({
-      id: Data.uid("op"), studentId: document.getElementById("fStudent").value,
-      reason: document.getElementById("fReason").value.trim(),
-      fromDatetime: document.getElementById("fFrom").value,
-      toDatetime: document.getElementById("fTo").value,
-      status: "pending", approvedBy: ""
-    });
-    Data.saveOutpass(list);
-    App.showToast("Outpass request submitted.");
+    if (id) {
+      list = list.map(function (o) {
+        if (o.id !== id) return o;
+        return Object.assign({}, o, {
+          studentId: document.getElementById("fStudent").value,
+          reason: document.getElementById("fReason").value.trim(),
+          fromDatetime: document.getElementById("fFrom").value,
+          toDatetime: document.getElementById("fTo").value
+        });
+      });
+      Data.saveOutpass(list);
+      App.showToast("Outpass request updated.");
+    } else {
+      list.push({
+        id: Data.uid("op"), studentId: document.getElementById("fStudent").value,
+        reason: document.getElementById("fReason").value.trim(),
+        fromDatetime: document.getElementById("fFrom").value,
+        toDatetime: document.getElementById("fTo").value,
+        status: "pending", approvedBy: ""
+      });
+      Data.saveOutpass(list);
+      App.showToast("Outpass request submitted.");
+    }
     closeModal();
     render();
   });

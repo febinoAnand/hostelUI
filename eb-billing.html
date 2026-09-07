@@ -86,6 +86,13 @@
   }
 
   var canCreate = App.can("rooms", "create");
+  var ebSortState = App.makeSortState();
+  var ebPageByBlock = {};
+  var EB_PAGE_SIZE = 10;
+  function ebSortTh(key, label, extraClass) {
+    var cls = "sortable-th" + (ebSortState.key === key ? (ebSortState.dir === "asc" ? " sort-asc" : " sort-desc") : "");
+    return '<th class="' + (extraClass ? extraClass + " " : "") + cls + '" data-sort="' + key + '">' + label + '</th>';
+  }
 
   var fBlockEl = document.getElementById("fBlock");
   fBlockEl.innerHTML = distinctBlocks().map(function (b) { return '<option value="' + b + '">' + b + ' Block</option>'; }).join("");
@@ -152,9 +159,19 @@
           (canCreate ? '<button class="btn btn-outline btn-sm" data-quick-add="' + block + '">+ Add Bill</button>' : "") + '</div></div>';
       }
 
-      var rowsHtml = rooms.map(function (r) {
+      var roomRows = rooms.map(function (r) {
         var share = res.shares.find(function (s) { return s.room.id === r.id; });
-        return '<tr><td>' + r.roomNumber + '</td><td>' + (share ? share.occupants : 0) + '</td><td class="num num-strong">₹' + (share ? share.share.toLocaleString("en-IN") : "0") + '</td></tr>';
+        return { room: r, occupants: share ? share.occupants : 0, share: share ? share.share : 0 };
+      });
+      roomRows = App.sortRows(roomRows, ebSortState, {
+        room: function (x) { return x.room.roomNumber; },
+        occupants: function (x) { return x.occupants; },
+        share: function (x) { return x.share; }
+      });
+      var page = ebPageByBlock[block] || 1;
+      var pageItems = App.paginate(roomRows, page, EB_PAGE_SIZE);
+      var rowsHtml = pageItems.map(function (x) {
+        return '<tr><td>' + x.room.roomNumber + '</td><td>' + x.occupants + '</td><td class="num num-strong">₹' + x.share.toLocaleString("en-IN") + '</td></tr>';
       }).join("");
 
       return '<div class="panel" style="margin-bottom:16px;">' + headerHtml +
@@ -163,10 +180,33 @@
           '<div class="detail-row"><span>Rate / Unit</span><strong>₹' + res.bill.ratePerUnit + '</strong></div>' +
           '<div class="detail-row"><span>Total Amount</span><strong>₹' + res.bill.totalAmount.toLocaleString("en-IN") + '</strong></div>' +
         '</div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Room</th><th>Occupants</th><th class="num">Share</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr>' + ebSortTh("room", "Room") + ebSortTh("occupants", "Occupants") + ebSortTh("share", "Share", "num") + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+        '<div class="table-pagination" data-eb-pagination="' + block + '"></div>' +
       '</div>';
     }).join("");
+
+    blocks.forEach(function (block) {
+      var container = mount.querySelector('[data-eb-pagination="' + block + '"]');
+      if (!container) return;
+      var res = Business.getEBShareForBlock(block, period);
+      if (!res.bill) return;
+      var total = Data.getRooms().filter(function (r) { return r.block === block; }).length;
+      ebPageByBlock[block] = App.renderPagination(container, {
+        page: ebPageByBlock[block] || 1, pageSize: EB_PAGE_SIZE, total: total,
+        onChange: function (p) { ebPageByBlock[block] = p; render(); }
+      });
+    });
   }
+
+  document.getElementById("blockPanels").addEventListener("click", function (e) {
+    var th = e.target.closest("[data-sort]");
+    if (!th) return;
+    var key = th.getAttribute("data-sort");
+    if (ebSortState.key === key) { ebSortState.dir = ebSortState.dir === "asc" ? "desc" : "asc"; }
+    else { ebSortState.key = key; ebSortState.dir = "asc"; }
+    ebPageByBlock = {};
+    render();
+  });
 
   periodFilterEl.addEventListener("change", function (e) { selectedPeriod = e.target.value; render(); });
 

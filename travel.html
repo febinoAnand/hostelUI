@@ -47,12 +47,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Hosteller</th><th>Type</th><th>Date</th><th>Expected Return</th><th>Mode</th><th>Notes</th>
+                <th data-sort="name">Hosteller</th><th data-sort="type">Type</th><th data-sort="date">Date</th><th data-sort="expectedReturn">Expected Return</th><th data-sort="mode">Mode</th><th data-sort="notes">Notes</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -61,11 +62,12 @@
 <div class="modal-overlay" id="travelModal">
   <div class="modal-box">
     <div class="modal-header">
-      <h3>Log Travel Entry</h3>
+      <h3 id="travelModalTitle">Log Travel Entry</h3>
       <button class="modal-close" id="travelModalClose">&times;</button>
     </div>
     <div class="modal-body">
       <form id="travelForm">
+        <input type="hidden" id="editId">
         <div class="field-grid">
           <div class="field span-2"><label>Hosteller *</label><select id="fStudent" required></select></div>
           <div class="field span-2">
@@ -107,6 +109,10 @@
   App.renderShell({ active: "travel", title: "Travel Updates", subtitle: "Home departures and return check-ins" });
 
   var searchTerm = "", typeFilterVal = "";
+  var canUpdate = App.can("outpass", "update");
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   function studentOptionsHtml() {
     var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
@@ -148,13 +154,23 @@
       return matchesSearch && matchesType;
     }).sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
 
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (t) { var s = students.find(function (x) { return x.id === t.studentId; }); return s ? s.name : ""; },
+      type: function (t) { return t.type; },
+      date: function (t) { return t.date; },
+      expectedReturn: function (t) { return t.type === "home" ? (t.expectedReturnDate || "") : ""; },
+      mode: function (t) { return t.mode || ""; },
+      notes: function (t) { return t.notes || ""; }
+    });
+
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + travel.length + " travel entries";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("bus") + '<p>No travel entries found.</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("bus") + '<p>No travel entries found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (t) {
+      tbody.innerHTML = pageItems.map(function (t) {
         var s = students.find(function (x) { return x.id === t.studentId; });
         var room = s ? rooms.find(function (r) { return r.id === s.roomId; }) : null;
         return '<tr>' +
@@ -164,13 +180,21 @@
           '<td>' + (t.type === "home" && t.expectedReturnDate ? Data.displayDate(t.expectedReturnDate) : "-") + '</td>' +
           '<td>' + (t.mode || "-") + '</td>' +
           '<td>' + (t.notes || "-") + '</td>' +
+          '<td class="row-actions">' + (canUpdate ? '<button class="action-trigger" data-edit="' + t.id + '" title="Edit">' + App.svg("edit") + '</button>' : "") + '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("typeFilter").addEventListener("change", function (e) { typeFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("typeFilter").addEventListener("change", function (e) { typeFilterVal = e.target.value; currentPage = 1; render(); });
 
   /* ---------------- Log Travel modal ---------------- */
   var modal = document.getElementById("travelModal");
@@ -180,35 +204,63 @@
   }
   document.querySelectorAll('input[name="fType"]').forEach(function (r) { r.addEventListener("change", toggleExpectedField); });
 
-  function openModal() {
+  function openModal(id) {
     document.getElementById("travelForm").reset();
+    document.getElementById("editId").value = "";
     document.getElementById("fStudent").innerHTML = studentOptionsHtml();
     document.getElementById("fDate").value = Data.isoDate(Data.today());
     document.getElementById("fExpected").value = "";
     document.querySelector('input[name="fType"][value="home"]').checked = true;
+
+    if (id) {
+      var t = Data.getTravel().find(function (x) { return x.id === id; });
+      if (t) {
+        document.getElementById("travelModalTitle").textContent = "Edit Travel Entry";
+        document.getElementById("editId").value = t.id;
+        document.getElementById("fStudent").value = t.studentId;
+        document.querySelector('input[name="fType"][value="' + t.type + '"]').checked = true;
+        document.getElementById("fDate").value = t.date;
+        document.getElementById("fExpected").value = t.expectedReturnDate || "";
+        document.getElementById("fMode").value = t.mode || "Bus";
+        document.getElementById("fNotes").value = t.notes || "";
+      }
+    } else {
+      document.getElementById("travelModalTitle").textContent = "Log Travel Entry";
+    }
     toggleExpectedField();
     modal.classList.add("show");
   }
   function closeModal() { modal.classList.remove("show"); }
-  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
   document.getElementById("travelModalClose").addEventListener("click", closeModal);
   document.getElementById("travelCancelBtn").addEventListener("click", closeModal);
   modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
 
+  document.getElementById("tableBody").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    if (editBtn) openModal(editBtn.getAttribute("data-edit"));
+  });
+
   document.getElementById("travelSaveBtn").addEventListener("click", function () {
     var form = document.getElementById("travelForm");
     if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
     var type = document.querySelector('input[name="fType"]:checked').value;
-    var list = Data.getTravel();
-    list.push({
-      id: Data.uid("tr"), studentId: document.getElementById("fStudent").value, type: type,
+    var record = {
+      id: id || Data.uid("tr"), studentId: document.getElementById("fStudent").value, type: type,
       date: document.getElementById("fDate").value,
       expectedReturnDate: type === "home" ? document.getElementById("fExpected").value : "",
       mode: document.getElementById("fMode").value,
       notes: document.getElementById("fNotes").value.trim()
-    });
+    };
+    var list = Data.getTravel();
+    if (id) {
+      list = list.map(function (x) { return x.id === id ? record : x; });
+    } else {
+      list.push(record);
+    }
     Data.saveTravel(list);
-    App.showToast("Travel entry logged.");
+    App.showToast(id ? "Travel entry updated." : "Travel entry logged.");
     closeModal();
     render();
   });

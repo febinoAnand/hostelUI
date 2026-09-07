@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hostellers Master · HostelHub</title>
+<title>Hostellers · HostelHub</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,7 +18,7 @@
     <main class="content">
       <div class="page-header-row">
         <div>
-          <h2>Hostellers Master</h2>
+          <h2>Hostellers</h2>
           <p class="desc">Registration &amp; master data for every resident student.</p>
         </div>
         <div class="page-header-actions">
@@ -47,12 +47,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Hosteller</th><th>Reg No.</th><th>Course / Year</th><th>Room</th><th>Guardian</th><th>Status</th><th></th>
+                <th data-sort="name">Hosteller</th><th data-sort="regNo">Reg No.</th><th data-sort="course">Course / Year</th><th data-sort="room">Room</th><th data-sort="guardian">Guardian</th><th data-sort="status">Status</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -87,6 +88,13 @@
               <label><input type="radio" name="fStatus" value="left"><span>Left</span></label>
             </div>
           </div>
+          <div class="field span-3"><label>Fee Structure *</label><select id="fFeeStructure" required><option value="">Select a fee structure...</option></select><span class="hint">Choosing a structure sets this hosteller's fee invoice automatically.</span></div>
+          <div class="field span-3" id="feeStructurePreviewField">
+            <label>Fee Breakdown Preview</label>
+            <div id="feeStructurePreview" class="detail-rows" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>
+          </div>
+          <div class="field" id="manualAmountField" style="display:none"><label>Custom Fee Amount (₹) *</label><input type="number" id="fManualAmount" min="1"></div>
+          <div class="field span-2" id="manualReasonField" style="display:none"><label>Reason for Concession *</label><input type="text" id="fManualReason" placeholder="e.g. Merit scholarship, staff ward concession, sibling discount..."></div>
         </div>
       </form>
     </div>
@@ -104,17 +112,95 @@
 <script>
   App.requireAuth();
   if (App.guardPermission("students", "read")) {
-  App.renderShell({ active: "students", title: "Hostellers Master", subtitle: "Registration & master data" });
+  App.renderShell({ active: "students", title: "Hostellers", subtitle: "Registration & master data" });
 
   var canCreate = App.can("students", "create");
   var canUpdate = App.can("students", "update");
   var canDelete = App.can("students", "delete");
   var searchTerm = "", statusFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   var fCourse = document.getElementById("fCourse");
   fCourse.innerHTML = Data.COURSES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
   var fBlood = document.getElementById("fBlood");
   fBlood.innerHTML = Data.BLOOD_GROUPS.map(function (b) { return '<option value="' + b + '">' + b + '</option>'; }).join("");
+
+  var MANUAL_PREFIX = "Manual/Concession — ";
+  var fFeeStructure = document.getElementById("fFeeStructure");
+  function populateFeeStructureOptions(selectedId) {
+    var structures = Data.getFeeStructures();
+    fFeeStructure.innerHTML = '<option value="">Select a fee structure...</option>' +
+      structures.map(function (fs) {
+        return '<option value="' + fs.id + '"' + (fs.id === selectedId ? " selected" : "") + '>' + fs.name + " (" + fs.year + ") — ₹" + fs.total.toLocaleString("en-IN") + '</option>';
+      }).join("") +
+      '<option value="manual"' + (selectedId === "manual" ? " selected" : "") + '>Manual / Custom (Discount or Concession)</option>';
+  }
+
+  function renderFeeStructurePreview(structureId) {
+    var el = document.getElementById("feeStructurePreview");
+    var fs = Data.getFeeStructures().find(function (x) { return x.id === structureId; });
+    if (!fs) { el.innerHTML = '<div class="detail-row"><span>No structure selected yet</span><strong>—</strong></div>'; return; }
+    var c = fs.components;
+    el.innerHTML =
+      '<div class="detail-row"><span>Hostel Fee</span><strong>₹' + c.hostel.toLocaleString("en-IN") + '</strong></div>' +
+      '<div class="detail-row"><span>Mess Fee</span><strong>₹' + c.mess.toLocaleString("en-IN") + '</strong></div>' +
+      '<div class="detail-row"><span>Maintenance</span><strong>₹' + c.maintenance.toLocaleString("en-IN") + '</strong></div>' +
+      '<div class="detail-row"><span>Miscellaneous</span><strong>₹' + c.misc.toLocaleString("en-IN") + '</strong></div>' +
+      '<div class="detail-row"><span>Total</span><strong>₹' + fs.total.toLocaleString("en-IN") + '</strong></div>';
+  }
+
+  function toggleManualFields(structureId) {
+    var isManual = structureId === "manual";
+    document.getElementById("manualAmountField").style.display = isManual ? "" : "none";
+    document.getElementById("manualReasonField").style.display = isManual ? "" : "none";
+    document.getElementById("feeStructurePreviewField").style.display = isManual ? "none" : "";
+    document.getElementById("fManualAmount").required = isManual;
+    document.getElementById("fManualReason").required = isManual;
+    if (!isManual) renderFeeStructurePreview(structureId);
+  }
+
+  fFeeStructure.addEventListener("change", function (e) { toggleManualFields(e.target.value); });
+
+  function inferStructureId(student) {
+    if (student.feeStructureId) return student.feeStructureId;
+    var invoices = Data.getFeeLedger().filter(function (l) { return l.studentId === student.id && l.type === "invoice"; });
+    var structures = Data.getFeeStructures();
+    for (var i = 0; i < invoices.length; i++) {
+      if (invoices[i].description && invoices[i].description.indexOf(MANUAL_PREFIX) === 0) return "manual";
+      var match = structures.find(function (fs) { return fs.name === invoices[i].description; });
+      if (match) return match.id;
+    }
+    return "";
+  }
+
+  function inferManualInvoice(student) {
+    var invoice = Data.getFeeLedger().find(function (l) {
+      return l.studentId === student.id && l.type === "invoice" && l.description && l.description.indexOf(MANUAL_PREFIX) === 0;
+    });
+    if (!invoice) return null;
+    return { amount: invoice.amount, reason: invoice.description.slice(MANUAL_PREFIX.length) };
+  }
+
+  function syncStudentFeeInvoice(studentId, structureId, invoiceDate, manualAmount, manualReason) {
+    var ledger = Data.getFeeLedger().filter(function (l) { return !(l.studentId === studentId && l.type === "invoice"); });
+    if (structureId === "manual") {
+      ledger.push({
+        id: Data.uid("fl"), studentId: studentId, type: "invoice", amount: manualAmount,
+        date: invoiceDate || Data.isoDate(Data.today()), mode: "", receiptNo: "", description: MANUAL_PREFIX + manualReason
+      });
+    } else {
+      var structure = Data.getFeeStructures().find(function (fs) { return fs.id === structureId; });
+      if (structure) {
+        ledger.push({
+          id: Data.uid("fl"), studentId: studentId, type: "invoice", amount: structure.total,
+          date: invoiceDate || Data.isoDate(Data.today()), mode: "", receiptNo: "", description: structure.name
+        });
+      }
+    }
+    Data.saveFeeLedger(ledger);
+  }
 
   function roomOptionsHtml(selectedId) {
     var rooms = Data.getRooms();
@@ -138,11 +224,20 @@
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + students.length + " hostellers";
 
     var rooms = Data.getRooms();
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (s) { return s.name; },
+      regNo: function (s) { return s.regNo; },
+      course: function (s) { return s.course + " " + s.year; },
+      room: function (s) { var r = rooms.find(function (x) { return x.id === s.roomId; }); return r ? r.roomNumber : ""; },
+      guardian: function (s) { return s.guardianName || ""; },
+      status: function (s) { return s.status; }
+    });
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("users") + '<p>No hostellers found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
+      tbody.innerHTML = pageItems.map(function (s) {
         var room = rooms.find(function (r) { return r.id === s.roomId; });
         var inOut = s.status === "active" ? Business.getCurrentStatus(s.id) : "";
         return '<tr>' +
@@ -165,6 +260,12 @@
       }).join("");
     }
 
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
+
     var statGrid = document.getElementById("statGrid");
     var active = students.filter(function (s) { return s.status === "active"; });
     var out = active.filter(function (s) { return Business.getCurrentStatus(s.id) === "out"; }).length;
@@ -175,8 +276,8 @@
       '<div class="stat-card accent-slate"><div class="stat-icon icon-slate">' + App.svg("xCircle") + '</div><div><div class="stat-value">' + students.filter(function (s) { return s.status === "left"; }).length + '</div><div class="stat-label">Left hostel</div></div></div>';
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; currentPage = 1; render(); });
 
   /* ---------------- Modal ---------------- */
   var modal = document.getElementById("stModal");
@@ -201,8 +302,18 @@
       document.getElementById("fGuardianPhone").value = s.guardianPhone || "";
       document.getElementById("fAddress").value = s.address || "";
       document.querySelector('input[name="fStatus"][value="' + s.status + '"]').checked = true;
+      var currentStructureId = inferStructureId(s);
+      populateFeeStructureOptions(currentStructureId);
+      toggleManualFields(currentStructureId);
+      if (currentStructureId === "manual") {
+        var manualInfo = inferManualInvoice(s);
+        document.getElementById("fManualAmount").value = manualInfo ? manualInfo.amount : "";
+        document.getElementById("fManualReason").value = manualInfo ? manualInfo.reason : "";
+      }
     } else {
       document.getElementById("modalTitle").textContent = "Register Hosteller";
+      populateFeeStructureOptions("");
+      toggleManualFields("");
     }
     modal.classList.add("show");
   }
@@ -217,8 +328,14 @@
     if (!form.checkValidity()) { form.reportValidity(); return; }
     var id = document.getElementById("editId").value;
     var newRoomId = document.getElementById("fRoom").value || null;
+    var newStructureId = document.getElementById("fFeeStructure").value;
+    var newManualAmount = newStructureId === "manual" ? (parseFloat(document.getElementById("fManualAmount").value) || 0) : null;
+    var newManualReason = newStructureId === "manual" ? document.getElementById("fManualReason").value.trim() : null;
     var rooms = Data.getRooms();
     var students = Data.getStudents();
+    var existing = id ? students.find(function (s) { return s.id === id; }) : null;
+    var oldStructureId = existing ? inferStructureId(existing) : "";
+    var oldManualInfo = existing ? inferManualInvoice(existing) : null;
     var record = {
       id: id || Data.uid("st"),
       name: document.getElementById("fName").value.trim(),
@@ -231,7 +348,8 @@
       guardianName: document.getElementById("fGuardianName").value.trim(),
       guardianPhone: document.getElementById("fGuardianPhone").value.trim(),
       address: document.getElementById("fAddress").value.trim(),
-      status: document.querySelector('input[name="fStatus"]:checked').value
+      status: document.querySelector('input[name="fStatus"]:checked').value,
+      feeStructureId: newStructureId
     };
 
     var oldRoomId = id ? (students.find(function (s) { return s.id === id; }) || {}).roomId : null;
@@ -256,7 +374,12 @@
       students = students.concat([record]);
     }
     Data.saveStudents(students);
-    App.showToast(id ? "Hosteller updated." : "Hosteller registered.");
+
+    var structureChanged = newStructureId !== oldStructureId ||
+      (newStructureId === "manual" && (!oldManualInfo || oldManualInfo.amount !== newManualAmount || oldManualInfo.reason !== newManualReason));
+    if (structureChanged) syncStudentFeeInvoice(record.id, newStructureId, record.admissionDate, newManualAmount, newManualReason);
+
+    App.showToast((id ? "Hosteller updated." : "Hosteller registered.") + (structureChanged ? " Fee invoice updated as per the selected structure." : ""));
     closeModal();
     render();
   });

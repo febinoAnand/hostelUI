@@ -39,23 +39,28 @@
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Item</th><th>Category</th><th>Unit</th><th>Balance</th><th>Reorder Threshold</th><th>Status</th></tr>
+              <tr><th data-sort="name">Item</th><th data-sort="category">Category</th><th data-sort="unit">Unit</th><th data-sort="balance">Balance</th><th data-sort="reorder">Reorder Threshold</th><th data-sort="status">Status</th></tr>
             </thead>
             <tbody id="balanceBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="balancePagination"></div>
       </div>
 
-      <div class="panel-header" style="margin:0 0 10px"><h3>Recent Stock Transactions</h3></div>
+      <div class="panel-header" style="margin:0 0 10px">
+        <h3>Recent Stock Transactions</h3>
+        <button class="btn btn-outline btn-sm" id="downloadBtn">Download</button>
+      </div>
       <div class="table-card">
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Item</th><th>Type</th><th>Quantity</th><th>Rate</th><th>Total</th><th>Date</th><th>Supplier</th></tr>
+              <tr><th data-sort="name">Item</th><th data-sort="type">Type</th><th data-sort="quantity">Quantity</th><th data-sort="rate">Rate</th><th data-sort="total">Total</th><th data-sort="date">Date</th><th data-sort="supplier">Supplier</th></tr>
             </thead>
             <tbody id="txnBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="txnPagination"></div>
       </div>
     </main>
   </div>
@@ -76,10 +81,11 @@
             <div class="status-toggle-group">
               <label><input type="radio" name="sType" value="inward" checked><span>Inward</span></label>
               <label><input type="radio" name="sType" value="outward"><span>Outward</span></label>
+              <label><input type="radio" name="sType" value="mess"><span>To Mess</span></label>
             </div>
           </div>
           <div class="field"><label>Quantity *</label><input type="number" id="stQty" min="0" step="0.01" required></div>
-          <div class="field"><label>Rate per Unit (₹) *</label><input type="number" id="stRate" min="0" step="0.01" required></div>
+          <div class="field"><label id="stRateLabel">Rate per Unit (₹) *</label><input type="number" id="stRate" min="0" step="0.01" required></div>
           <div class="field"><label>Date *</label><input type="date" id="stDate" required></div>
           <div class="field"><label>Supplier</label><input type="text" id="stSupplier" placeholder="Optional"></div>
         </div>
@@ -115,6 +121,37 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Download Stock Transaction History</h3>
+      <button class="modal-close" id="downloadModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field"><label>From Date *</label><input type="date" id="dlFrom" required></div>
+          <div class="field"><label>To Date *</label><input type="date" id="dlTo" required></div>
+          <div class="field span-2">
+            <label>File Format</label>
+            <div class="status-toggle-group">
+              <label><input type="radio" name="dlFormat" value="csv" checked><span>CSV</span></label>
+              <label><input type="radio" name="dlFormat" value="pdf"><span>PDF</span></label>
+            </div>
+          </div>
+        </div>
+        <p class="hint" id="dlMeta" style="margin-top:12px"></p>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="downloadCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="downloadConfirmBtn">Download</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/5.0.8/jspdf.plugin.autotable.min.js"></script>
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -123,6 +160,14 @@
   App.requireAuth();
   if (App.guardPermission("canteen", "read")) {
   App.renderShell({ active: "canteen-inventory", title: "Inventory", subtitle: "Stock, transactions and cost tracking" });
+
+  var balancePage = 1, txnPage = 1;
+  var PAGE_SIZE = 10;
+  var balanceSortState = App.makeSortState();
+  var txnSortState = App.makeSortState();
+
+  var STOCK_TYPE_LABELS = { inward: "Inward", outward: "Outward", mess: "To Mess" };
+  var STOCK_TYPE_CHIPS = { inward: "chip-green", outward: "chip-red", mess: "chip-amber" };
 
   var fiCategory = document.getElementById("fiCategory");
   fiCategory.innerHTML = Data.CANTEEN_CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join("");
@@ -160,12 +205,20 @@
     Charts.renderDonutChart(document.getElementById("catChart"), donutItems, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); }, centerLabel: "Inward Cost" });
 
     /* Balances table */
-    var balances = Business.getAllStockBalances();
+    var balances = App.sortRows(Business.getAllStockBalances(), balanceSortState, {
+      name: function (b) { return b.item.name; },
+      category: function (b) { return b.item.category; },
+      unit: function (b) { return b.item.unit; },
+      balance: function (b) { return b.balance; },
+      reorder: function (b) { return b.item.reorderThreshold; },
+      status: function (b) { return b.isLowStock ? 1 : 0; }
+    });
     var balanceBody = document.getElementById("balanceBody");
+    var balancePageItems = App.paginate(balances, balancePage, PAGE_SIZE);
     if (!balances.length) {
       balanceBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("box") + '<p>No items yet.</p></div></td></tr>';
     } else {
-      balanceBody.innerHTML = balances.map(function (b) {
+      balanceBody.innerHTML = balancePageItems.map(function (b) {
         return '<tr>' +
           '<td><strong>' + b.item.name + '</strong></td>' +
           '<td><span class="chip chip-indigo">' + b.item.category + '</span></td>' +
@@ -176,39 +229,76 @@
         '</tr>';
       }).join("");
     }
+    balancePage = App.renderPagination(document.getElementById("balancePagination"), {
+      page: balancePage, pageSize: PAGE_SIZE, total: balances.length,
+      onChange: function (p) { balancePage = p; render(); }
+    });
+    App.bindSortableTable(balanceBody.closest("table").tHead, balanceSortState, function () { balancePage = 1; render(); });
 
     /* Recent transactions table */
-    var recent = stock.slice().sort(function (a, b) { return b.date.localeCompare(a.date); }).slice(0, 30);
+    var recent = stock.slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+    recent = App.sortRows(recent, txnSortState, {
+      name: function (t) { var item = items.find(function (i) { return i.id === t.itemId; }); return item ? item.name : ""; },
+      type: function (t) { return t.type; },
+      quantity: function (t) { return t.quantity; },
+      rate: function (t) { return t.type === "mess" ? 0 : t.ratePerUnit; },
+      total: function (t) { return t.type === "mess" ? 0 : t.totalAmount; },
+      date: function (t) { return t.date; },
+      supplier: function (t) { return t.type === "mess" ? "" : (t.supplier || ""); }
+    });
     var txnBody = document.getElementById("txnBody");
+    var txnPageItems = App.paginate(recent, txnPage, PAGE_SIZE);
     if (!recent.length) {
       txnBody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("receipt") + '<p>No transactions logged yet.</p></div></td></tr>';
     } else {
-      txnBody.innerHTML = recent.map(function (t) {
+      txnBody.innerHTML = txnPageItems.map(function (t) {
         var item = items.find(function (i) { return i.id === t.itemId; });
         var itemName = item ? item.name : "Unknown Item";
         var unit = item ? item.unit : "";
         return '<tr>' +
           '<td><strong>' + itemName + '</strong></td>' +
-          '<td><span class="chip ' + (t.type === "inward" ? "chip-green" : "chip-red") + '">' + (t.type === "inward" ? "Inward" : "Outward") + '</span></td>' +
+          '<td><span class="chip ' + (STOCK_TYPE_CHIPS[t.type] || "chip-slate") + '">' + (STOCK_TYPE_LABELS[t.type] || t.type) + '</span></td>' +
           '<td class="num">' + t.quantity.toLocaleString("en-IN") + ' ' + unit + '</td>' +
-          '<td class="num">₹' + t.ratePerUnit.toLocaleString("en-IN") + '</td>' +
-          '<td class="num-strong">₹' + t.totalAmount.toLocaleString("en-IN") + '</td>' +
+          '<td class="num">' + (t.type === "mess" ? "-" : "₹" + t.ratePerUnit.toLocaleString("en-IN")) + '</td>' +
+          '<td class="num-strong">' + (t.type === "mess" ? "-" : "₹" + t.totalAmount.toLocaleString("en-IN")) + '</td>' +
           '<td>' + Data.displayDate(t.date) + '</td>' +
-          '<td>' + (t.supplier || "-") + '</td>' +
+          '<td>' + (t.type === "mess" ? "-" : (t.supplier || "-")) + '</td>' +
         '</tr>';
       }).join("");
     }
+    txnPage = App.renderPagination(document.getElementById("txnPagination"), {
+      page: txnPage, pageSize: PAGE_SIZE, total: recent.length,
+      onChange: function (p) { txnPage = p; render(); }
+    });
+    App.bindSortableTable(txnBody.closest("table").tHead, txnSortState, function () { txnPage = 1; render(); });
 
     refreshItemSelect(document.getElementById("stItem").value);
   }
 
   /* ---------------- Stock entry modal ---------------- */
   var stockModal = document.getElementById("stockModal");
+  var stRateInput = document.getElementById("stRate");
+  var stSupplierInput = document.getElementById("stSupplier");
+
+  function updateStockFieldsForType() {
+    var type = document.querySelector('input[name="sType"]:checked').value;
+    var isMess = type === "mess";
+    stRateInput.disabled = isMess;
+    stSupplierInput.disabled = isMess;
+    document.getElementById("stRateLabel").textContent = "Rate per Unit (₹)" + (isMess ? "" : " *");
+    if (isMess) {
+      stRateInput.value = "";
+      stSupplierInput.value = "";
+    }
+  }
+  document.querySelectorAll('input[name="sType"]').forEach(function (r) { r.addEventListener("change", updateStockFieldsForType); });
+
   function openStockModal() {
     document.getElementById("stockForm").reset();
     refreshItemSelect("");
     document.querySelector('input[name="sType"][value="inward"]').checked = true;
     document.getElementById("stDate").value = Data.isoDate(Data.today());
+    updateStockFieldsForType();
     stockModal.classList.add("show");
   }
   function closeStockModal() { stockModal.classList.remove("show"); }
@@ -222,10 +312,11 @@
     if (!form.checkValidity()) { form.reportValidity(); return; }
     var itemId = document.getElementById("stItem").value;
     var type = document.querySelector('input[name="sType"]:checked').value;
+    var isMess = type === "mess";
     var qty = parseFloat(document.getElementById("stQty").value) || 0;
-    var rate = parseFloat(document.getElementById("stRate").value) || 0;
+    var rate = isMess ? 0 : (parseFloat(stRateInput.value) || 0);
     var date = document.getElementById("stDate").value;
-    var supplier = document.getElementById("stSupplier").value.trim();
+    var supplier = isMess ? "" : stSupplierInput.value.trim();
     var list = Data.getCanteenStock();
     list.push({ id: Data.uid("st"), itemId: itemId, type: type, quantity: qty, ratePerUnit: rate, totalAmount: qty * rate, date: date, supplier: supplier });
     Data.saveCanteenStock(list);
@@ -262,6 +353,127 @@
     App.showToast("Item added.");
     closeItemModal();
     render();
+  });
+
+  /* ---------------- Download modal ---------------- */
+  var downloadModal = document.getElementById("downloadModal");
+  var dlFromInput = document.getElementById("dlFrom");
+  var dlToInput = document.getElementById("dlTo");
+
+  function getRangeTransactions() {
+    var from = dlFromInput.value, to = dlToInput.value;
+    var items = Data.getCanteenItems();
+    return Data.getCanteenStock()
+      .filter(function (t) { return (!from || t.date >= from) && (!to || t.date <= to); })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
+      .map(function (t) {
+        var item = items.find(function (i) { return i.id === t.itemId; });
+        return {
+          itemName: item ? item.name : "Unknown Item",
+          unit: item ? item.unit : "",
+          typeLabel: STOCK_TYPE_LABELS[t.type] || t.type,
+          quantity: t.quantity,
+          ratePerUnit: t.type === "mess" ? 0 : t.ratePerUnit,
+          totalAmount: t.type === "mess" ? 0 : t.totalAmount,
+          date: Data.displayDate(t.date),
+          supplier: t.supplier || ""
+        };
+      });
+  }
+
+  function updateDownloadMeta() {
+    var rows = getRangeTransactions();
+    document.getElementById("dlMeta").textContent = rows.length + " transaction(s) found in the selected range.";
+  }
+  dlFromInput.addEventListener("change", updateDownloadMeta);
+  dlToInput.addEventListener("change", updateDownloadMeta);
+
+  function openDownloadModal() {
+    document.getElementById("downloadForm").reset();
+    dlToInput.value = Data.isoDate(Data.today());
+    dlFromInput.value = Data.isoDate(Data.addDays(Data.today(), -30));
+    document.querySelector('input[name="dlFormat"][value="csv"]').checked = true;
+    updateDownloadMeta();
+    downloadModal.classList.add("show");
+  }
+  function closeDownloadModal() { downloadModal.classList.remove("show"); }
+  document.getElementById("downloadBtn").addEventListener("click", openDownloadModal);
+  document.getElementById("downloadModalClose").addEventListener("click", closeDownloadModal);
+  document.getElementById("downloadCancelBtn").addEventListener("click", closeDownloadModal);
+  downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) closeDownloadModal(); });
+
+  function triggerBlobDownload(filename, blob) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function csvEscape(v) {
+    v = v === null || v === undefined ? "" : String(v);
+    if (/[",\r\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+
+  function downloadCsv(rows, filenameBase) {
+    var header = ["Item", "Type", "Quantity", "Unit", "Rate per Unit (₹)", "Total Amount (₹)", "Date", "Supplier"];
+    var lines = [header.map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      lines.push([
+        r.itemName, r.typeLabel, r.quantity, r.unit,
+        r.ratePerUnit || "", r.totalAmount || "", r.date, r.supplier
+      ].map(csvEscape).join(","));
+    });
+    var csvContent = "﻿" + lines.join("\r\n");
+    triggerBlobDownload(filenameBase + ".csv", new Blob([csvContent], { type: "text/csv;charset=utf-8;" }));
+  }
+
+  function downloadPdf(rows, filenameBase, fromLabel, toLabel) {
+    var jsPDF = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDF) { App.showToast("PDF library failed to load. Check your internet connection.", true); return; }
+    var doc = new jsPDF();
+    doc.setFontSize(15);
+    doc.text("Stock Transaction History", 14, 17);
+    doc.setFontSize(10);
+    doc.setTextColor(110, 110, 110);
+    doc.text("HostelHub — Canteen Inventory · Period: " + fromLabel + " to " + toLabel, 14, 24);
+    doc.autoTable({
+      startY: 30,
+      head: [["Item", "Type", "Quantity", "Rate", "Total", "Date", "Supplier"]],
+      body: rows.map(function (r) {
+        return [
+          r.itemName, r.typeLabel, r.quantity + " " + r.unit,
+          r.ratePerUnit ? "Rs. " + r.ratePerUnit.toLocaleString("en-IN") : "-",
+          r.totalAmount ? "Rs. " + r.totalAmount.toLocaleString("en-IN") : "-",
+          r.date, r.supplier || "-"
+        ];
+      }),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255 },
+      alternateRowStyles: { fillColor: [244, 246, 251] }
+    });
+    doc.save(filenameBase + ".pdf");
+  }
+
+  document.getElementById("downloadConfirmBtn").addEventListener("click", function () {
+    var form = document.getElementById("downloadForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    if (dlFromInput.value > dlToInput.value) { App.showToast("'From Date' must be before 'To Date'.", true); return; }
+    var rows = getRangeTransactions();
+    if (!rows.length) { App.showToast("No transactions found in the selected range.", true); return; }
+    var format = document.querySelector('input[name="dlFormat"]:checked').value;
+    var filenameBase = "stock-transactions_" + dlFromInput.value + "_to_" + dlToInput.value;
+    if (format === "csv") {
+      downloadCsv(rows, filenameBase);
+    } else {
+      downloadPdf(rows, filenameBase, Data.displayDate(dlFromInput.value), Data.displayDate(dlToInput.value));
+    }
+    App.showToast((format === "csv" ? "CSV" : "PDF") + " download started.");
+    closeDownloadModal();
   });
 
   render();

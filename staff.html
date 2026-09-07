@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Staff Master · HostelHub</title>
+<title>Staff · HostelHub</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,7 +18,7 @@
     <main class="content">
       <div class="page-header-row">
         <div>
-          <h2>Staff Master</h2>
+          <h2>Staff</h2>
           <p class="desc">Records &amp; payroll details for every hostel staff member.</p>
         </div>
         <div class="page-header-actions">
@@ -50,12 +50,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Staff</th><th>Designation</th><th>Phone</th><th>Join Date</th><th>Monthly Salary</th><th>Status</th><th></th>
+                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="phone">Phone</th><th data-sort="joinDate">Join Date</th><th data-sort="salary">Monthly Salary</th><th data-sort="status">Status</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -100,12 +101,15 @@
 <script>
   App.requireAuth();
   if (App.guardPermission("staff", "read")) {
-  App.renderShell({ active: "staff", title: "Staff Master", subtitle: "Records & payroll for hostel staff" });
+  App.renderShell({ active: "staff", title: "Staff", subtitle: "Records & payroll for hostel staff" });
 
   var canCreate = App.can("staff", "create");
   var canUpdate = App.can("staff", "update");
   var canDelete = App.can("staff", "delete");
   var searchTerm = "", designationFilterVal = "", statusFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   var fDesignation = document.getElementById("fDesignation");
   fDesignation.innerHTML = Data.DESIGNATIONS.map(function (d) { return '<option value="' + d + '">' + d + '</option>'; }).join("");
@@ -122,13 +126,22 @@
       var matchesStatus = !statusFilterVal || (statusFilterVal === "active" ? s.isActive : !s.isActive);
       return matchesSearch && matchesDesignation && matchesStatus;
     });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (s) { return s.name; },
+      designation: function (s) { return s.designation; },
+      phone: function (s) { return s.phone; },
+      joinDate: function (s) { return s.joinDate || ""; },
+      salary: function (s) { return s.salaryPerMonth; },
+      status: function (s) { return s.isActive ? 1 : 0; }
+    });
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + staff.length + " staff";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("idCard") + '<p>No staff found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
+      tbody.innerHTML = pageItems.map(function (s) {
         return '<tr>' +
           '<td><a href="staff-detail.html?id=' + s.id + '"><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div>' +
           '<div><strong>' + s.name + '</strong></div></div></a></td>' +
@@ -149,6 +162,12 @@
       }).join("");
     }
 
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
+
     var statGrid = document.getElementById("statGrid");
     var active = staff.filter(function (s) { return s.isActive; });
     var totalPayroll = active.reduce(function (a, s) { return a + s.salaryPerMonth; }, 0);
@@ -161,9 +180,9 @@
       '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("coins") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(pendingSalary) + '</div><div class="stat-label">Pending salary</div></div></div>';
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("designationFilter").addEventListener("change", function (e) { designationFilterVal = e.target.value; render(); });
-  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("designationFilter").addEventListener("change", function (e) { designationFilterVal = e.target.value; currentPage = 1; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; currentPage = 1; render(); });
 
   /* ---------------- Modal ---------------- */
   var modal = document.getElementById("sfModal");
