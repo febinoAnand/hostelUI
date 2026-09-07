@@ -39,12 +39,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Staff</th><th>Designation</th><th>Status</th><th>In Time</th><th>Out Time</th><th></th>
+                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="status">Status</th><th data-sort="inTime">In Time</th><th data-sort="outTime">Out Time</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -61,6 +62,9 @@
 
   var searchTerm = "";
   var todayIso = Data.isoDate(Data.today());
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   function pad2(n) { return n < 10 ? "0" + n : "" + n; }
   function currentTimeHHMM() {
@@ -78,13 +82,21 @@
     var filtered = active.filter(function (s) {
       return !q || s.name.toLowerCase().indexOf(q) > -1 || s.designation.toLowerCase().indexOf(q) > -1;
     });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (s) { return s.name; },
+      designation: function (s) { return s.designation; },
+      status: function (s) { var rec = todayRecordFor(s.id); return rec ? rec.status : "pending"; },
+      inTime: function (s) { var rec = todayRecordFor(s.id); return rec && rec.inTime ? rec.inTime : ""; },
+      outTime: function (s) { var rec = todayRecordFor(s.id); return rec && rec.outTime ? rec.outTime : ""; }
+    });
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + active.length + " staff";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("inout") + '<p>No staff found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
+      tbody.innerHTML = pageItems.map(function (s) {
         var rec = todayRecordFor(s.id);
         var status = rec ? rec.status : "pending";
         var statusLabel = rec ? rec.status : "Unmarked";
@@ -102,6 +114,12 @@
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
 
     var statGrid = document.getElementById("statGrid");
     var present = active.filter(function (s) { var r = todayRecordFor(s.id); return r && r.status === "present"; }).length;
@@ -131,7 +149,7 @@
     render();
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
 
   document.getElementById("tableBody").addEventListener("click", function (e) {
     var markBtn = e.target.closest("[data-mark]");

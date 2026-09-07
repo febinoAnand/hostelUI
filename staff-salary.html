@@ -48,12 +48,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Staff</th><th>Designation</th><th>Month</th><th class="num">Amount</th><th>Status</th><th>Paid Date</th><th></th>
+                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="month">Month</th><th class="num" data-sort="amount">Amount</th><th data-sort="status">Status</th><th data-sort="paidDate">Paid Date</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -101,6 +102,9 @@
   var canUpdate = App.can("staff", "update");
   var searchTerm = "", statusFilterVal = "", monthFilterVal = "";
   var currentMonth = Data.isoDate(Data.today()).slice(0, 7);
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
 
   var fStaffSel = document.getElementById("fStaff");
   fStaffSel.innerHTML = Data.getStaff().map(function (s) { return '<option value="' + s.id + '" data-salary="' + s.salaryPerMonth + '">' + s.name + ' (' + s.designation + ')</option>'; }).join("");
@@ -135,13 +139,23 @@
       return matchesSearch && matchesMonth && matchesStatus;
     }).sort(function (a, b) { return b.month.localeCompare(a.month); });
 
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (r) { var s = staffById[r.staffId]; return s ? s.name : ""; },
+      designation: function (r) { var s = staffById[r.staffId]; return s ? s.designation : ""; },
+      month: function (r) { return r.month; },
+      amount: function (r) { return r.amount; },
+      status: function (r) { return r.status; },
+      paidDate: function (r) { return r.paidDate || ""; }
+    });
+
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + recs.length + " records";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("wallet") + '<p>No salary records found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (r) {
+      tbody.innerHTML = pageItems.map(function (r) {
         var s = staffById[r.staffId];
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div>' +
@@ -157,6 +171,12 @@
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
 
     var statGrid = document.getElementById("statGrid");
     var paidThisMonth = recs.filter(function (r) { return r.month === currentMonth && r.status === "paid"; }).reduce(function (a, r) { return a + r.amount; }, 0);
@@ -174,9 +194,9 @@
       '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(avgSalary) + '</div><div class="stat-label">Average monthly salary</div></div></div>';
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
-  document.getElementById("monthFilter").addEventListener("change", function (e) { monthFilterVal = e.target.value; render(); });
-  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("monthFilter").addEventListener("change", function (e) { monthFilterVal = e.target.value; currentPage = 1; render(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; currentPage = 1; render(); });
 
   document.getElementById("tableBody").addEventListener("click", function (e) {
     var payBtn = e.target.closest("[data-pay]");

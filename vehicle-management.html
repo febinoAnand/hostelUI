@@ -37,12 +37,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Vehicle No.</th><th>Type</th><th>Driver</th><th>Purpose</th><th>Total Cost</th><th></th>
+                <th data-sort="vehicleNo">Vehicle No.</th><th data-sort="type">Type</th><th data-sort="driver">Driver</th><th data-sort="purpose">Purpose</th><th data-sort="cost">Total Cost</th><th></th>
               </tr>
             </thead>
             <tbody id="vehicleTableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="vehiclePagination"></div>
       </div>
 
       <div class="table-card">
@@ -54,12 +55,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Vehicle No.</th><th>Date</th><th>Type</th><th>Cost</th><th>Notes</th>
+                <th data-sort="vehicleNo">Vehicle No.</th><th data-sort="date">Date</th><th data-sort="type">Type</th><th data-sort="cost">Cost</th><th data-sort="notes">Notes</th>
               </tr>
             </thead>
             <tbody id="logsTableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="logsPagination"></div>
       </div>
     </main>
   </div>
@@ -132,6 +134,10 @@
   var canUpdate = App.can("admin", "update");
   var canDelete = App.can("admin", "delete");
   var selectedVehicleId = "";
+  var vehiclePage = 1, logsPage = 1;
+  var PAGE_SIZE = 10;
+  var vehicleSortState = App.makeSortState();
+  var logsSortState = App.makeSortState();
 
   var fType = document.getElementById("fType");
   fType.innerHTML = Data.VEHICLE_TYPES.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join("");
@@ -172,11 +178,19 @@
       '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("bus") + '</div><div><div class="stat-value">' + tripThisMonth + '</div><div class="stat-label">Trip logs this month</div></div></div>';
 
     /* ---------------- Vehicle table ---------------- */
+    var sortedVehicles = App.sortRows(vehicles, vehicleSortState, {
+      vehicleNo: function (v) { return v.vehicleNo; },
+      type: function (v) { return v.type; },
+      driver: function (v) { return v.driverName || ""; },
+      purpose: function (v) { return v.purpose || ""; },
+      cost: function (v) { return Business.getVehicleCostTotal(v.id); }
+    });
     var vBody = document.getElementById("vehicleTableBody");
+    var vehiclePageItems = App.paginate(sortedVehicles, vehiclePage, PAGE_SIZE);
     if (!vehicles.length) {
       vBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("car") + '<p>No vehicles added yet.</p></div></td></tr>';
     } else {
-      vBody.innerHTML = vehicles.map(function (v) {
+      vBody.innerHTML = vehiclePageItems.map(function (v) {
         return '<tr>' +
           '<td><span class="chip chip-indigo cell-mono">' + v.vehicleNo + '</span></td>' +
           '<td><span class="chip chip-slate">' + v.type + '</span></td>' +
@@ -194,10 +208,22 @@
         '</tr>';
       }).join("");
     }
+    vehiclePage = App.renderPagination(document.getElementById("vehiclePagination"), {
+      page: vehiclePage, pageSize: PAGE_SIZE, total: vehicles.length,
+      onChange: function (p) { vehiclePage = p; render(); }
+    });
+    App.bindSortableTable(vBody.closest("table").tHead, vehicleSortState, function () { vehiclePage = 1; render(); });
 
     /* ---------------- Logs table ---------------- */
     var filteredLogs = logs.filter(function (l) { return !selectedVehicleId || l.vehicleId === selectedVehicleId; });
     filteredLogs.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+    filteredLogs = App.sortRows(filteredLogs, logsSortState, {
+      vehicleNo: function (l) { var v = vehicles.find(function (x) { return x.id === l.vehicleId; }); return v ? v.vehicleNo : ""; },
+      date: function (l) { return l.date; },
+      type: function (l) { return l.type; },
+      cost: function (l) { return l.cost || 0; },
+      notes: function (l) { return l.notes || ""; }
+    });
 
     var clearWrap = document.getElementById("clearFilterWrap");
     var filterMeta = document.getElementById("logsFilterMeta");
@@ -206,17 +232,18 @@
       filterMeta.textContent = sv ? "— filtered to " + sv.vehicleNo : "";
       clearWrap.innerHTML = '<a href="#" id="clearFilterLink" style="font-size:12.5px;font-weight:700;color:var(--primary);">Clear filter</a>';
       var link = document.getElementById("clearFilterLink");
-      if (link) link.addEventListener("click", function (e) { e.preventDefault(); selectedVehicleId = ""; render(); });
+      if (link) link.addEventListener("click", function (e) { e.preventDefault(); selectedVehicleId = ""; logsPage = 1; render(); });
     } else {
       filterMeta.textContent = "";
       clearWrap.innerHTML = "";
     }
 
     var lBody = document.getElementById("logsTableBody");
+    var logsPageItems = App.paginate(filteredLogs, logsPage, PAGE_SIZE);
     if (!filteredLogs.length) {
       lBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("fileText") + '<p>No logs found.</p></div></td></tr>';
     } else {
-      lBody.innerHTML = filteredLogs.map(function (l) {
+      lBody.innerHTML = logsPageItems.map(function (l) {
         var v = vehicles.find(function (x) { return x.id === l.vehicleId; });
         return '<tr>' +
           '<td class="cell-mono">' + (v ? v.vehicleNo : "-") + '</td>' +
@@ -227,6 +254,11 @@
         '</tr>';
       }).join("");
     }
+    logsPage = App.renderPagination(document.getElementById("logsPagination"), {
+      page: logsPage, pageSize: PAGE_SIZE, total: filteredLogs.length,
+      onChange: function (p) { logsPage = p; render(); }
+    });
+    App.bindSortableTable(lBody.closest("table").tHead, logsSortState, function () { logsPage = 1; render(); });
 
     refreshVehiclePicker();
   }
@@ -235,7 +267,7 @@
     var viewBtn = e.target.closest("[data-view-logs]");
     var editBtn = e.target.closest("[data-edit]");
     var delBtn = e.target.closest("[data-del]");
-    if (viewBtn) { selectedVehicleId = viewBtn.getAttribute("data-view-logs"); render(); }
+    if (viewBtn) { selectedVehicleId = viewBtn.getAttribute("data-view-logs"); logsPage = 1; render(); }
     if (editBtn) { openVehicleModal(editBtn.getAttribute("data-edit")); }
     if (delBtn) {
       var id = delBtn.getAttribute("data-del");

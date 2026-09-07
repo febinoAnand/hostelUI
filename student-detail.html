@@ -86,6 +86,23 @@
       { key: "outpass", label: "Outpass" }
     ];
     var activeTab = "overview";
+    var PAGE_SIZE = 10;
+    var inoutPage = 1, inoutTotal = 0, inoutSort = App.makeSortState();
+    var ledgerPage = 1, ledgerTotal = 0, ledgerSort = App.makeSortState();
+    var travelPage = 1, travelTotal = 0, travelSort = App.makeSortState();
+    var opPage = 1, opTotal = 0, opSort = App.makeSortState();
+
+    var inoutView = "table", travelView = "table";
+    var todayForCal = Data.today();
+    var inoutCalYear = todayForCal.getFullYear(), inoutCalMonth = todayForCal.getMonth();
+    var travelCalYear = todayForCal.getFullYear(), travelCalMonth = todayForCal.getMonth();
+
+    function viewSwitchHtml(scope, current) {
+      var views = [["table", "Table"], ["calendar", "Calendar"], ["timeline", "Timeline"]];
+      return '<div class="page-tabs" style="margin-bottom:16px" data-view-scope="' + scope + '">' + views.map(function (v) {
+        return '<button type="button" class="page-tab' + (v[0] === current ? " active" : "") + '" data-view="' + v[0] + '">' + v[1] + '</button>';
+      }).join("") + '</div>';
+    }
 
     function renderTabs() {
       document.getElementById("tabsMount").innerHTML = '<div class="page-tabs">' + TABS.map(function (t) {
@@ -115,25 +132,86 @@
       '</div>';
     }
 
+    function renderInOutRailTimeline(logs) {
+      if (!logs.length) return emptyRow("No in/out activity recorded yet.");
+      return '<div class="rail-timeline">' + logs.map(function (l) {
+        var isIn = l.direction === "in";
+        return '<div class="rail-item">' +
+          '<div class="rail-marker ' + (isIn ? "in" : "out") + '">' + App.svg(isIn ? "checkCircle" : "inout") + '</div>' +
+          '<div class="rail-content">' +
+            '<div class="rail-top"><strong>' + (isIn ? "Checked In" : "Checked Out") + '</strong><span class="rail-time">' + Data.displayDateTime(l.timestamp) + '</span></div>' +
+            (l.reason ? '<p class="rail-reason">' + l.reason + '</p>' : '') +
+          '</div>' +
+        '</div>';
+      }).join("") + '</div>';
+    }
+
+    function renderInOutCalendarInto(container) {
+      var logs = Data.getStudentInOut().filter(function (l) { return l.studentId === student.id; });
+      App.renderMonthCalendar(container, {
+        year: inoutCalYear, month: inoutCalMonth,
+        getDayContent: function (dateIso) {
+          var dayLogs = logs.filter(function (l) { return l.timestamp.slice(0, 10) === dateIso; });
+          if (!dayLogs.length) return "";
+          var hasIn = dayLogs.some(function (l) { return l.direction === "in"; });
+          var hasOut = dayLogs.some(function (l) { return l.direction === "out"; });
+          var titleParts = dayLogs.map(function (l) { return (l.direction === "in" ? "In" : "Out") + " " + l.timestamp.slice(11, 16) + (l.reason ? " (" + l.reason + ")" : ""); });
+          var html = "";
+          if (hasIn) html += '<span class="cal-event in" title="' + titleParts.join(" · ").replace(/"/g, "&quot;") + '">In</span>';
+          if (hasOut) html += '<span class="cal-event out" title="' + titleParts.join(" · ").replace(/"/g, "&quot;") + '">Out</span>';
+          return html;
+        },
+        onNav: function (y, m) { inoutCalYear = y; inoutCalMonth = m; renderInOutCalendarInto(container); }
+      });
+    }
+
     function renderInOut() {
+      var html = '<div class="panel">' + viewSwitchHtml("inout", inoutView);
       var logs = Data.getStudentInOut().filter(function (l) { return l.studentId === student.id; })
         .sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-      if (!logs.length) return '<div class="panel">' + emptyRow("No in/out activity recorded yet.") + '</div>';
-      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Direction</th><th>Date & Time</th><th>Reason</th></tr></thead><tbody>' +
-        logs.map(function (l) {
-          return '<tr><td><span class="status-pill ' + l.direction + '">' + l.direction + '</span></td><td>' + Data.displayDateTime(l.timestamp) + '</td><td>' + (l.reason || "-") + '</td></tr>';
-        }).join("") + '</tbody></table></div></div>';
+
+      if (inoutView === "calendar") {
+        html += '<div id="inoutCalendarMount"></div>';
+      } else if (inoutView === "timeline") {
+        html += renderInOutRailTimeline(logs);
+      } else {
+        logs = App.sortRows(logs, inoutSort, {
+          direction: function (l) { return l.direction; }, timestamp: function (l) { return l.timestamp; }, reason: function (l) { return l.reason || ""; }
+        });
+        inoutTotal = logs.length;
+        if (!logs.length) {
+          html += emptyRow("No in/out activity recorded yet.");
+        } else {
+          var pageItems = App.paginate(logs, inoutPage, PAGE_SIZE);
+          html += '<div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="direction">Direction</th><th data-sort="timestamp">Date & Time</th><th data-sort="reason">Reason</th></tr></thead><tbody>' +
+            pageItems.map(function (l) {
+              return '<tr><td><span class="status-pill ' + l.direction + '">' + l.direction + '</span></td><td>' + Data.displayDateTime(l.timestamp) + '</td><td>' + (l.reason || "-") + '</td></tr>';
+            }).join("") + '</tbody></table></div><div class="table-pagination" id="inoutPagination"></div>';
+        }
+      }
+      html += '</div>';
+      return html;
     }
 
     function renderFees() {
       var ledger = feeSummary.ledger.slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+      ledger = App.sortRows(ledger, ledgerSort, {
+        type: function (l) { return l.type; }, date: function (l) { return l.date; }, mode: function (l) { return l.mode || ""; },
+        receipt: function (l) { return l.receiptNo || ""; }, amount: function (l) { return l.amount; }
+      });
+      ledgerTotal = ledger.length;
       var advances = Data.getAdvances().filter(function (a) { return a.studentId === student.id; });
       var html = '<div class="panel-grid even">';
-      html += '<div class="panel"><div class="panel-header"><h3>Fee Ledger</h3><span class="panel-tag">' + feeSummary.status + '</span></div>';
-      html += ledger.length ? '<div class="table-scroll"><table class="data-table"><thead><tr><th>Type</th><th>Date</th><th>Mode</th><th>Receipt</th><th class="num">Amount</th></tr></thead><tbody>' +
-        ledger.map(function (l) {
-          return '<tr><td><span class="chip ' + (l.type === "invoice" ? "chip-slate" : "chip-green") + '">' + l.type + '</span></td><td>' + Data.displayDate(l.date) + '</td><td>' + (l.mode || "-") + '</td><td class="cell-mono">' + (l.receiptNo || "-") + '</td><td class="num num-strong">₹' + l.amount.toLocaleString("en-IN") + '</td></tr>';
-        }).join("") + '</tbody></table></div>' : emptyRow("No fee records yet.");
+      html += '<div class="panel"><div class="panel-header"><h3>Fee Ledger</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag">' + feeSummary.status + '</span><a href="invoice.html?id=' + student.id + '">View Full Invoice</a></div></div>';
+      if (ledger.length) {
+        var pageItems = App.paginate(ledger, ledgerPage, PAGE_SIZE);
+        html += '<div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="type">Type</th><th data-sort="date">Date</th><th data-sort="mode">Mode</th><th data-sort="receipt">Receipt</th><th class="num" data-sort="amount">Amount</th></tr></thead><tbody>' +
+          pageItems.map(function (l) {
+            return '<tr><td><span class="chip ' + (l.type === "invoice" ? "chip-slate" : "chip-green") + '">' + l.type + '</span></td><td>' + Data.displayDate(l.date) + '</td><td>' + (l.mode || "-") + '</td><td class="cell-mono">' + (l.receiptNo || "-") + '</td><td class="num num-strong">₹' + l.amount.toLocaleString("en-IN") + '</td></tr>';
+          }).join("") + '</tbody></table></div><div class="table-pagination" id="ledgerPagination"></div>';
+      } else {
+        html += emptyRow("No fee records yet.");
+      }
       html += '</div>';
       html += '<div class="panel"><div class="panel-header"><h3>Advances</h3><span class="panel-tag">₹' + advanceBalance.toLocaleString("en-IN") + '</span></div>';
       html += advances.length ? '<div class="activity-list">' + advances.map(function (a) {
@@ -143,28 +221,117 @@
       return html;
     }
 
+    function renderTravelJourneyTimeline(travel) {
+      if (!travel.length) return emptyRow("No travel records yet.");
+      return '<div class="journey-timeline">' + travel.map(function (t) {
+        var isHome = t.type === "home";
+        return '<div class="journey-item ' + (isHome ? "home" : "return") + '">' +
+          '<div class="journey-icon">' + App.svg(isHome ? "bus" : "door") + '</div>' +
+          '<div class="journey-card">' +
+            '<div class="journey-card-head"><span class="chip ' + (isHome ? "chip-amber" : "chip-green") + '">' + (isHome ? "Home Departure" : "Return") + '</span><strong>' + Data.displayDate(t.date) + '</strong></div>' +
+            '<div class="journey-card-body">' +
+              '<span>' + App.svg("bus") + " " + t.mode + '</span>' +
+              (isHome && t.expectedReturnDate ? '<span>Expected back ' + Data.displayDate(t.expectedReturnDate) + '</span>' : '') +
+              (t.notes ? '<span>' + t.notes + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("") + '</div>';
+    }
+
+    function renderTravelCalendarInto(container) {
+      var travel = Data.getTravel().filter(function (t) { return t.studentId === student.id; });
+      App.renderMonthCalendar(container, {
+        year: travelCalYear, month: travelCalMonth,
+        getDayContent: function (dateIso) {
+          var dayEntries = travel.filter(function (t) { return t.date === dateIso; });
+          if (!dayEntries.length) return "";
+          return dayEntries.map(function (t) {
+            var isHome = t.type === "home";
+            var title = (isHome ? "Home departure" : "Return") + " · " + t.mode + (t.notes ? " · " + t.notes : "");
+            return '<span class="cal-event ' + (isHome ? "home" : "return") + '" title="' + title.replace(/"/g, "&quot;") + '">' + (isHome ? "Home" : "Return") + '</span>';
+          }).join("");
+        },
+        onNav: function (y, m) { travelCalYear = y; travelCalMonth = m; renderTravelCalendarInto(container); }
+      });
+    }
+
     function renderTravel() {
+      var html = '<div class="panel">' + viewSwitchHtml("travel", travelView);
       var travel = Data.getTravel().filter(function (t) { return t.studentId === student.id; }).sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
-      if (!travel.length) return '<div class="panel">' + emptyRow("No travel records yet.") + '</div>';
-      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Type</th><th>Date</th><th>Expected Return</th><th>Mode</th><th>Notes</th></tr></thead><tbody>' +
-        travel.map(function (t) {
-          return '<tr><td><span class="chip ' + (t.type === "home" ? "chip-amber" : "chip-green") + '">' + t.type + '</span></td><td>' + Data.displayDate(t.date) + '</td><td>' + (t.expectedReturnDate ? Data.displayDate(t.expectedReturnDate) : "-") + '</td><td>' + t.mode + '</td><td>' + (t.notes || "-") + '</td></tr>';
-        }).join("") + '</tbody></table></div></div>';
+
+      if (travelView === "calendar") {
+        html += '<div id="travelCalendarMount"></div>';
+      } else if (travelView === "timeline") {
+        html += renderTravelJourneyTimeline(travel);
+      } else {
+        travel = App.sortRows(travel, travelSort, {
+          type: function (t) { return t.type; }, date: function (t) { return t.date; },
+          expectedReturn: function (t) { return t.expectedReturnDate || ""; }, mode: function (t) { return t.mode; }, notes: function (t) { return t.notes || ""; }
+        });
+        travelTotal = travel.length;
+        if (!travel.length) {
+          html += emptyRow("No travel records yet.");
+        } else {
+          var pageItems = App.paginate(travel, travelPage, PAGE_SIZE);
+          html += '<div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="type">Type</th><th data-sort="date">Date</th><th data-sort="expectedReturn">Expected Return</th><th data-sort="mode">Mode</th><th data-sort="notes">Notes</th></tr></thead><tbody>' +
+            pageItems.map(function (t) {
+              return '<tr><td><span class="chip ' + (t.type === "home" ? "chip-amber" : "chip-green") + '">' + t.type + '</span></td><td>' + Data.displayDate(t.date) + '</td><td>' + (t.expectedReturnDate ? Data.displayDate(t.expectedReturnDate) : "-") + '</td><td>' + t.mode + '</td><td>' + (t.notes || "-") + '</td></tr>';
+            }).join("") + '</tbody></table></div><div class="table-pagination" id="travelPagination"></div>';
+        }
+      }
+      html += '</div>';
+      return html;
     }
 
     function renderOutpass() {
       var list = Data.getOutpass().filter(function (o) { return o.studentId === student.id; }).sort(function (a, b) { return new Date(b.fromDatetime) - new Date(a.fromDatetime); });
+      list = App.sortRows(list, opSort, {
+        reason: function (o) { return o.reason; }, from: function (o) { return o.fromDatetime; }, to: function (o) { return o.toDatetime; },
+        status: function (o) { return o.status; }, approver: function (o) { return o.approvedBy || ""; }
+      });
+      opTotal = list.length;
       if (!list.length) return '<div class="panel">' + emptyRow("No outpass requests yet.") + '</div>';
-      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Reason</th><th>From</th><th>To</th><th>Status</th><th>Approved By</th></tr></thead><tbody>' +
-        list.map(function (o) {
+      var pageItems = App.paginate(list, opPage, PAGE_SIZE);
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="reason">Reason</th><th data-sort="from">From</th><th data-sort="to">To</th><th data-sort="status">Status</th><th data-sort="approver">Approved By</th></tr></thead><tbody>' +
+        pageItems.map(function (o) {
           return '<tr><td>' + o.reason + '</td><td>' + Data.displayDateTime(o.fromDatetime) + '</td><td>' + Data.displayDateTime(o.toDatetime) + '</td><td><span class="status-pill ' + o.status + '">' + o.status + '</span></td><td>' + (o.approvedBy || "-") + '</td></tr>';
-        }).join("") + '</tbody></table></div></div>';
+        }).join("") + '</tbody></table></div><div class="table-pagination" id="opPagination"></div></div>';
     }
 
     function renderPanel() {
       var map = { overview: renderOverview, inout: renderInOut, fees: renderFees, travel: renderTravel, outpass: renderOutpass };
       document.getElementById("tabPanels").innerHTML = map[activeTab]();
+
+      function finish(pageVar, setPage, total, sortState, paginationId, onPageChange) {
+        var container = document.getElementById(paginationId);
+        if (container) setPage(App.renderPagination(container, { page: pageVar, pageSize: PAGE_SIZE, total: total, onChange: onPageChange }));
+        var t = document.querySelector("#tabPanels table");
+        App.bindSortableTable(t && t.tHead, sortState, function () { onPageChange(1); });
+      }
+
+      if (activeTab === "inout") {
+        if (inoutView === "calendar") renderInOutCalendarInto(document.getElementById("inoutCalendarMount"));
+        finish(inoutPage, function (p) { inoutPage = p; }, inoutTotal, inoutSort, "inoutPagination", function (p) { inoutPage = p; renderPanel(); });
+      } else if (activeTab === "fees") {
+        finish(ledgerPage, function (p) { ledgerPage = p; }, ledgerTotal, ledgerSort, "ledgerPagination", function (p) { ledgerPage = p; renderPanel(); });
+      } else if (activeTab === "travel") {
+        if (travelView === "calendar") renderTravelCalendarInto(document.getElementById("travelCalendarMount"));
+        finish(travelPage, function (p) { travelPage = p; }, travelTotal, travelSort, "travelPagination", function (p) { travelPage = p; renderPanel(); });
+      } else if (activeTab === "outpass") {
+        finish(opPage, function (p) { opPage = p; }, opTotal, opSort, "opPagination", function (p) { opPage = p; renderPanel(); });
+      }
     }
+
+    document.getElementById("tabPanels").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-view]");
+      if (!btn) return;
+      var scope = btn.closest("[data-view-scope]").getAttribute("data-view-scope");
+      var view = btn.getAttribute("data-view");
+      if (scope === "inout") { inoutView = view; inoutPage = 1; }
+      else if (scope === "travel") { travelView = view; travelPage = 1; }
+      renderPanel();
+    });
 
     renderTabs();
     renderPanel();

@@ -90,6 +90,9 @@
       { key: "salary", label: "Salary History" }
     ];
     var activeTab = "overview";
+    var PAGE_SIZE = 10;
+    var attPage = 1, attTotal = 0, attSort = App.makeSortState();
+    var salPage = 1, salTotal = 0, salSort = App.makeSortState();
 
     function renderTabs() {
       document.getElementById("tabsMount").innerHTML = '<div class="page-tabs">' + TABS.map(function (t) {
@@ -121,25 +124,49 @@
     function renderAttendance() {
       var logs = Data.getStaffAttendance().filter(function (a) { return a.staffId === staffMember.id; })
         .sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+      logs = App.sortRows(logs, attSort, {
+        date: function (a) { return a.date; }, status: function (a) { return a.status; },
+        inTime: function (a) { return a.inTime || ""; }, outTime: function (a) { return a.outTime || ""; }
+      });
+      attTotal = logs.length;
       if (!logs.length) return '<div class="panel">' + emptyRow("No attendance records yet.") + '</div>';
-      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>In Time</th><th>Out Time</th></tr></thead><tbody>' +
-        logs.map(function (a) {
+      var pageItems = App.paginate(logs, attPage, PAGE_SIZE);
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="date">Date</th><th data-sort="status">Status</th><th data-sort="inTime">In Time</th><th data-sort="outTime">Out Time</th></tr></thead><tbody>' +
+        pageItems.map(function (a) {
           return '<tr><td>' + Data.displayDate(a.date) + '</td><td><span class="status-pill ' + a.status + '">' + a.status + '</span></td><td>' + (a.inTime || "-") + '</td><td>' + (a.outTime || "-") + '</td></tr>';
-        }).join("") + '</tbody></table></div></div>';
+        }).join("") + '</tbody></table></div><div class="table-pagination" id="attPagination"></div></div>';
     }
 
     function renderSalary() {
       var recs = salarySummary.records.slice().sort(function (a, b) { return b.month.localeCompare(a.month); });
+      recs = App.sortRows(recs, salSort, {
+        month: function (r) { return r.month; }, amount: function (r) { return r.amount; },
+        status: function (r) { return r.status; }, paidDate: function (r) { return r.paidDate || ""; }
+      });
+      salTotal = recs.length;
       if (!recs.length) return '<div class="panel">' + emptyRow("No salary records yet.") + '</div>';
-      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Month</th><th class="num">Amount</th><th>Status</th><th>Paid Date</th></tr></thead><tbody>' +
-        recs.map(function (r) {
+      var pageItems = App.paginate(recs, salPage, PAGE_SIZE);
+      return '<div class="panel"><div class="table-scroll"><table class="data-table"><thead><tr><th data-sort="month">Month</th><th class="num" data-sort="amount">Amount</th><th data-sort="status">Status</th><th data-sort="paidDate">Paid Date</th></tr></thead><tbody>' +
+        pageItems.map(function (r) {
           return '<tr><td>' + r.month + '</td><td class="num num-strong">₹' + r.amount.toLocaleString("en-IN") + '</td><td><span class="status-pill ' + r.status + '">' + r.status + '</span></td><td>' + (r.paidDate ? Data.displayDate(r.paidDate) : "-") + '</td></tr>';
-        }).join("") + '</tbody></table></div></div>';
+        }).join("") + '</tbody></table></div><div class="table-pagination" id="salPagination"></div></div>';
     }
 
     function renderPanel() {
       var map = { overview: renderOverview, attendance: renderAttendance, salary: renderSalary };
       document.getElementById("tabPanels").innerHTML = map[activeTab]();
+
+      if (activeTab === "attendance") {
+        var attContainer = document.getElementById("attPagination");
+        if (attContainer) attPage = App.renderPagination(attContainer, { page: attPage, pageSize: PAGE_SIZE, total: attTotal, onChange: function (p) { attPage = p; renderPanel(); } });
+        var t1 = document.querySelector("#tabPanels table");
+        App.bindSortableTable(t1 && t1.tHead, attSort, function () { attPage = 1; renderPanel(); });
+      } else if (activeTab === "salary") {
+        var salContainer = document.getElementById("salPagination");
+        if (salContainer) salPage = App.renderPagination(salContainer, { page: salPage, pageSize: PAGE_SIZE, total: salTotal, onChange: function (p) { salPage = p; renderPanel(); } });
+        var t2 = document.querySelector("#tabPanels table");
+        App.bindSortableTable(t2 && t2.tHead, salSort, function () { salPage = 1; renderPanel(); });
+      }
     }
 
     renderTabs();

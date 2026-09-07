@@ -70,8 +70,12 @@
     var latest = getLatestInOut(studentId);
     return latest ? latest.direction : "in";
   }
+  function getMissingAlertThreshold() {
+    var settings = D.getSettings();
+    return (settings && settings.missingAlertHours) || 10;
+  }
   function getMissingStudents(hoursThreshold) {
-    hoursThreshold = hoursThreshold || 10;
+    hoursThreshold = hoursThreshold || getMissingAlertThreshold();
     var now = new Date();
     var students = D.getStudents().filter(function (s) { return s.status === "active"; });
     var missing = [];
@@ -83,6 +87,17 @@
       }
     });
     return missing;
+  }
+  function getAttendanceForDate(dateIso) {
+    var cutoff = dateIso + "T23:59:59.999Z";
+    var logs = D.getStudentInOut();
+    var students = D.getStudents().filter(function (s) { return s.status === "active"; });
+    return students.map(function (s) {
+      var studentLogs = logs.filter(function (l) { return l.studentId === s.id && l.timestamp <= cutoff; });
+      studentLogs.sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+      var latest = studentLogs[0] || null;
+      return { student: s, status: latest ? latest.direction : "in", since: latest ? latest.timestamp : null, reason: latest ? latest.reason : null };
+    });
   }
   function getTodayInOutCounts() {
     var students = D.getStudents().filter(function (s) { return s.status === "active"; });
@@ -108,8 +123,9 @@
     var txns = D.getCanteenStock().filter(function (t) { return t.itemId === itemId; });
     var inward = sum(txns.filter(function (t) { return t.type === "inward"; }), function (t) { return t.quantity; });
     var outward = sum(txns.filter(function (t) { return t.type === "outward"; }), function (t) { return t.quantity; });
+    var toMess = sum(txns.filter(function (t) { return t.type === "mess"; }), function (t) { return t.quantity; });
     var adjustment = sum(txns.filter(function (t) { return t.type === "adjustment"; }), function (t) { return t.quantity; });
-    return inward - outward + adjustment;
+    return inward - outward - toMess + adjustment;
   }
   function getAllStockBalances() {
     return D.getCanteenItems().map(function (it) {
@@ -124,18 +140,22 @@
     var txns = D.getCanteenStock().filter(function (t) { return t.type === "inward" && (!fromIso || t.date >= fromIso) && (!toIso || t.date <= toIso); });
     return sum(txns, function (t) { return t.totalAmount; });
   }
+  function getCanteenUsageCostTotals(fromIso, toIso) {
+    var txns = D.getCanteenStock().filter(function (t) { return (t.type === "outward" || t.type === "mess") && (!fromIso || t.date >= fromIso) && (!toIso || t.date <= toIso); });
+    return sum(txns, function (t) { return t.totalAmount; });
+  }
   function getCanteenMealCount(fromIso, toIso) {
     return D.getCanteenAttendance().filter(function (a) { return (!fromIso || a.date >= fromIso) && (!toIso || a.date <= toIso); }).length;
   }
   function getWeeklyCanteenReport() {
     var from = D.isoDate(D.addDays(D.today(), -6));
     var to = D.isoDate(D.today());
-    return { from: from, to: to, cost: getCanteenCostTotals(from, to), meals: getCanteenMealCount(from, to) };
+    return { from: from, to: to, cost: getCanteenUsageCostTotals(from, to), meals: getCanteenMealCount(from, to) };
   }
   function getMonthlyCanteenReport() {
     var from = D.isoDate(D.addDays(D.today(), -29));
     var to = D.isoDate(D.today());
-    return { from: from, to: to, cost: getCanteenCostTotals(from, to), meals: getCanteenMealCount(from, to) };
+    return { from: from, to: to, cost: getCanteenUsageCostTotals(from, to), meals: getCanteenMealCount(from, to) };
   }
 
   /* ---------------- Staff ---------------- */
@@ -171,10 +191,10 @@
   window.Business = {
     getFeeSummary: getFeeSummary, getHostelFeeStats: getHostelFeeStats, getAdvanceBalance: getAdvanceBalance,
     getRoomStatus: getRoomStatus, getRoomStats: getRoomStats, getEBShareForBlock: getEBShareForBlock,
-    getLatestInOut: getLatestInOut, getCurrentStatus: getCurrentStatus, getMissingStudents: getMissingStudents, getTodayInOutCounts: getTodayInOutCounts,
+    getLatestInOut: getLatestInOut, getCurrentStatus: getCurrentStatus, getMissingStudents: getMissingStudents, getMissingAlertThreshold: getMissingAlertThreshold, getTodayInOutCounts: getTodayInOutCounts, getAttendanceForDate: getAttendanceForDate,
     getOutpassStats: getOutpassStats,
     getStockBalance: getStockBalance, getAllStockBalances: getAllStockBalances, getLowStockAlerts: getLowStockAlerts,
-    getCanteenCostTotals: getCanteenCostTotals, getCanteenMealCount: getCanteenMealCount, getWeeklyCanteenReport: getWeeklyCanteenReport, getMonthlyCanteenReport: getMonthlyCanteenReport,
+    getCanteenCostTotals: getCanteenCostTotals, getCanteenUsageCostTotals: getCanteenUsageCostTotals, getCanteenMealCount: getCanteenMealCount, getWeeklyCanteenReport: getWeeklyCanteenReport, getMonthlyCanteenReport: getMonthlyCanteenReport,
     getStaffAttendanceToday: getStaffAttendanceToday, getSalarySummary: getSalarySummary, getPendingSalaryTotal: getPendingSalaryTotal,
     getAdminExpenseTotal: getAdminExpenseTotal, getComplianceStatus: getComplianceStatus, getVehicleCostTotal: getVehicleCostTotal
   };

@@ -19,7 +19,7 @@
       <div class="page-header-row">
         <div>
           <h2>In / Out Board</h2>
-          <p class="desc">Live hostel-wide check-in and check-out tracking for every active hosteller.</p>
+          <p class="desc" id="pageDesc">Live hostel-wide check-in and check-out tracking for every active hosteller.</p>
         </div>
       </div>
 
@@ -32,6 +32,7 @@
             <input type="text" id="searchInput" placeholder="Search by hosteller name...">
           </div>
           <div class="toolbar-filters">
+            <input type="date" class="select-filter" id="dateFilter">
             <span class="toolbar-meta" id="toolbarMeta"></span>
           </div>
         </div>
@@ -39,12 +40,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Hosteller</th><th>Room</th><th>Status</th><th>Last Movement</th><th>Action</th>
+                <th data-sort="name">Hosteller</th><th data-sort="room">Room</th><th data-sort="status">Status</th><th data-sort="since">Last Movement</th><th id="actionHeader">Action</th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -84,48 +86,75 @@
 
   var canUpdate = App.can("attendance", "update");
   var searchTerm = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
+  var todayIso = Data.isoDate(Data.today());
+  document.getElementById("dateFilter").value = todayIso;
 
   function render() {
-    var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
-    var counts = Business.getTodayInOutCounts();
-    var missing = Business.getMissingStudents();
+    var dateIso = document.getElementById("dateFilter").value || todayIso;
+    var isToday = dateIso === todayIso;
+    document.getElementById("pageDesc").textContent = isToday
+      ? "Live hostel-wide check-in and check-out tracking for every active hosteller."
+      : "Attendance report for " + Data.displayDate(dateIso) + " — who was in and who was out.";
+    document.getElementById("actionHeader").textContent = isToday ? "Action" : "";
+
+    var rows = Business.getAttendanceForDate(dateIso);
+    var inCount = rows.filter(function (r) { return r.status === "in"; }).length;
+    var outCount = rows.length - inCount;
+    var missing = isToday ? Business.getMissingStudents() : [];
 
     document.getElementById("statGrid").innerHTML =
-      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("users") + '</div><div><div class="stat-value">' + counts.total + '</div><div class="stat-label">Active hostellers</div></div></div>' +
-      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + counts.in + '</div><div class="stat-label">Currently in</div></div></div>' +
-      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("inout") + '</div><div><div class="stat-value">' + counts.out + '</div><div class="stat-label">Currently out</div></div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("users") + '</div><div><div class="stat-value">' + rows.length + '</div><div class="stat-label">Active hostellers</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + inCount + '</div><div class="stat-label">' + (isToday ? "Currently in" : "In on this date") + '</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("inout") + '</div><div><div class="stat-value">' + outCount + '</div><div class="stat-label">' + (isToday ? "Currently out" : "Out on this date") + '</div></div></div>' +
       '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("alertTriangle") + '</div><div><div class="stat-value">' + missing.length + '</div><div class="stat-label">Missing / overdue</div></div></div>';
 
     var rooms = Data.getRooms();
     var q = searchTerm.toLowerCase();
-    var filtered = students.filter(function (s) { return !q || s.name.toLowerCase().indexOf(q) > -1; });
-    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + students.length + " hostellers";
+    var filtered = rows.filter(function (r) { return !q || r.student.name.toLowerCase().indexOf(q) > -1; });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (r) { return r.student.name; },
+      room: function (r) { var rm = rooms.find(function (x) { return x.id === r.student.roomId; }); return rm ? rm.roomNumber : ""; },
+      status: function (r) { return r.status; },
+      since: function (r) { return r.since || ""; }
+    });
+    document.getElementById("toolbarMeta").textContent = filtered.length + " of " + rows.length + " hostellers";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("inout") + '<p>No hostellers found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
-        var room = rooms.find(function (r) { return r.id === s.roomId; });
-        var status = Business.getCurrentStatus(s.id);
-        var latest = Business.getLatestInOut(s.id);
-        var nextDirection = status === "out" ? "in" : "out";
+      tbody.innerHTML = pageItems.map(function (r) {
+        var s = r.student;
+        var room = rooms.find(function (x) { return x.id === s.roomId; });
+        var nextDirection = r.status === "out" ? "in" : "out";
         var btnLabel = nextDirection === "in" ? "Mark In" : "Mark Out";
         var btnCls = nextDirection === "in" ? "btn-success" : "btn-outline";
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div><div><strong>' + s.name + '</strong></div></div></td>' +
           '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
-          '<td><span class="status-pill ' + status + '">' + status + '</span></td>' +
-          '<td>' + (latest ? Data.displayDateTime(latest.timestamp) : "-") + '</td>' +
+          '<td><span class="status-pill ' + r.status + '">' + r.status + '</span></td>' +
+          '<td>' + (r.since ? Data.displayDateTime(r.since) + (r.reason ? ' · ' + r.reason : '') : "-") + '</td>' +
           '<td class="row-actions" style="text-align:left">' +
-            (canUpdate ? '<button class="btn btn-sm ' + btnCls + '" data-mark="' + s.id + '" data-direction="' + nextDirection + '">' + btnLabel + '</button>' : '-') +
+            (isToday && canUpdate ? '<button class="btn btn-sm ' + btnCls + '" data-mark="' + s.id + '" data-direction="' + nextDirection + '">' + btnLabel + '</button>' : '') +
           '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; render(); }
+    });
+
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; render(); });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; render(); });
+  document.getElementById("dateFilter").addEventListener("change", function () { currentPage = 1; render(); });
 
   /* ---------------- Mark In/Out modal ---------------- */
   var modal = document.getElementById("ioModal");

@@ -19,7 +19,7 @@
       <div class="page-header-row">
         <div>
           <h2>Missing Alerts</h2>
-          <p class="desc">Hostellers who have been out for 10+ hours without checking back in.</p>
+          <p class="desc" id="pageDesc">Hostellers who have been out for too long without checking back in.</p>
         </div>
       </div>
 
@@ -76,9 +76,11 @@
   App.renderShell({ active: "missing-alerts", title: "Missing Alerts", subtitle: "Hostellers overdue to check back in" });
 
   var canUpdate = App.can("attendance", "update");
+  var alertThreshold = Business.getMissingAlertThreshold();
+  document.getElementById("pageDesc").textContent = "Hostellers who have been out for " + alertThreshold + "+ hours without checking back in.";
 
   function getOpenAlerts() {
-    var missing = Business.getMissingStudents(10);
+    var missing = Business.getMissingStudents();
     var resolvedRecords = Data.getMissingAlerts().filter(function (a) { return a.status === "resolved"; });
     return missing.filter(function (m) {
       return !resolvedRecords.some(function (r) { return r.studentId === m.student.id && r.raisedAt === m.since; });

@@ -99,7 +99,9 @@
     briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     idCard: '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4"/><path d="M14 14h4"/><path d="M5 17c.5-2 2-3 3-3s2.5 1 3 3"/>',
-    trendingUp: '<path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/>'
+    trendingUp: '<path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/>',
+    download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
   };
   function svg(name, extraClass) {
     var path = ICONS[name] || ICONS.dashboard;
@@ -110,10 +112,11 @@
   var NAV_ITEMS = [
     { key: "dashboard", href: "dashboard.html", label: "Dashboard", icon: "dashboard" },
     { section: "Hostellers" },
-    { key: "students", href: "students.html", label: "Hostellers Master", icon: "users", require: "students:read" },
+    { key: "students", href: "students.html", label: "Hostellers", icon: "users", require: "students:read" },
     { key: "hostel-attendance", href: "hostel-attendance.html", label: "In / Out Board", icon: "inout", require: "attendance:read" },
     { key: "missing-alerts", href: "missing-alerts.html", label: "Missing Alerts", icon: "bell", require: "attendance:read" },
-    { key: "fees", href: "fees.html", label: "Fees & Payments", icon: "receipt", require: "fees:read" },
+    { key: "fees", href: "fees.html", label: "Payments", icon: "receipt", require: "fees:read" },
+    { key: "fee-structure", href: "fee-structure.html", label: "Fee Structure", icon: "fileText", require: "fees:read" },
     { key: "outpass", href: "outpass.html", label: "Outpass", icon: "door", require: "outpass:read" },
     { key: "travel", href: "travel.html", label: "Travel Updates", icon: "bus", require: "outpass:read" },
     { section: "Canteen" },
@@ -122,17 +125,18 @@
     { key: "canteen-menu", href: "canteen-menu.html", label: "Weekly Menu", icon: "menu2", require: "canteen:read" },
     { key: "canteen-reports", href: "canteen-reports.html", label: "Reports", icon: "trendingUp", require: "canteen:read" },
     { section: "Staff" },
-    { key: "staff", href: "staff.html", label: "Staff Master", icon: "idCard", require: "staff:read" },
+    { key: "staff", href: "staff.html", label: "Staff", icon: "idCard", require: "staff:read" },
     { key: "staff-attendance", href: "staff-attendance.html", label: "In / Out Board", icon: "inout", require: "staff:read" },
     { key: "staff-salary", href: "staff-salary.html", label: "Salary Details", icon: "wallet", require: "staff:read" },
     { section: "Rooms" },
     { key: "rooms", href: "rooms.html", label: "Room List", icon: "bed", require: "rooms:read" },
     { key: "eb-billing", href: "eb-billing.html", label: "EB Bill Sharing", icon: "bolt", require: "rooms:read" },
     { section: "Admin" },
-    { key: "admin-expenses", href: "admin-expenses.html", label: "Admin Expenses", icon: "wallet", require: "admin:read" },
+    { key: "admin-expenses", href: "admin-expenses.html", label: "Expenses", icon: "wallet", require: "admin:read" },
     { key: "legal-compliance", href: "legal-compliance.html", label: "Legal Compliance", icon: "shield", require: "admin:read" },
     { key: "vehicle-management", href: "vehicle-management.html", label: "Vehicle Management", icon: "car", require: "admin:read" },
     { section: "Settings" },
+    { key: "settings", href: "settings.html", label: "Settings", icon: "settings", require: "settings:read" },
     { key: "roles", href: "roles.html", label: "Roles & Permissions", icon: "shield", require: "roles:read" },
     { key: "profile", href: "profile.html", label: "My Profile", icon: "userCircle" }
   ];
@@ -263,20 +267,160 @@
       if (menu) {
         var willShow = !menu.classList.contains("show");
         document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
-        if (willShow) { menu.classList.add("show"); positionActionMenu(id); }
+        if (willShow) { menu.classList.add("show"); positionActionMenu(id); menu._openedAt = Date.now(); }
       }
     }
   });
   window.addEventListener("scroll", function () {
     var openMenu = document.querySelector(".action-menu.show");
-    if (openMenu) openMenu.classList.remove("show");
+    if (openMenu && Date.now() - (openMenu._openedAt || 0) > 250) {
+      openMenu.classList.remove("show");
+    }
   }, true);
+
+  /* ---------------- Pagination ---------------- */
+  function paginate(list, page, pageSize) {
+    var start = (page - 1) * pageSize;
+    return list.slice(start, start + pageSize);
+  }
+
+  function renderPagination(container, opts) {
+    if (!container) return;
+    var pageSize = opts.pageSize || 10;
+    var total = opts.total || 0;
+    var totalPages = Math.max(1, Math.ceil(total / pageSize));
+    var page = Math.min(Math.max(1, opts.page || 1), totalPages);
+    var start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+    var end = Math.min(page * pageSize, total);
+
+    function pageBtn(p, label, active, disabled) {
+      return '<button type="button" class="pg-btn' + (active ? ' active' : '') + '" data-pg="' + p + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+    }
+
+    var pages = [];
+    var windowSize = 5;
+    if (totalPages <= windowSize + 2) {
+      for (var i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      var lo = Math.max(2, page - 1), hi = Math.min(totalPages - 1, page + 1);
+      if (lo > 2) pages.push("…");
+      for (var j = lo; j <= hi; j++) pages.push(j);
+      if (hi < totalPages - 1) pages.push("…");
+      pages.push(totalPages);
+    }
+
+    var btns = pageBtn(page - 1, "‹", false, page === 1);
+    btns += pages.map(function (p) {
+      return p === "…" ? '<span style="padding:0 4px;color:var(--muted-2);font-size:12.5px;">…</span>' : pageBtn(p, p, p === page, false);
+    }).join("");
+    btns += pageBtn(page + 1, "›", false, page === totalPages);
+
+    container.innerHTML =
+      '<span class="toolbar-meta">' + (total === 0 ? "No records" : "Showing " + start + "–" + end + " of " + total) + '</span>' +
+      '<div class="pg-btns">' + btns + '</div>';
+
+    container.querySelectorAll("[data-pg]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var p = parseInt(btn.getAttribute("data-pg"), 10);
+        if (p >= 1 && p <= totalPages && p !== page && typeof opts.onChange === "function") opts.onChange(p);
+      });
+    });
+
+    return page;
+  }
+
+  /* ---------------- Table sorting ---------------- */
+  function makeSortState(defaultKey, defaultDir) {
+    return { key: defaultKey || null, dir: defaultDir || "asc" };
+  }
+
+  function sortRows(rows, state, accessors) {
+    if (!state || !state.key) return rows;
+    var getter = accessors && accessors[state.key];
+    var indexed = rows.map(function (r, i) { return { r: r, i: i }; });
+    indexed.sort(function (a, b) {
+      var av = getter ? getter(a.r) : a.r[state.key];
+      var bv = getter ? getter(b.r) : b.r[state.key];
+      if (av === null || av === undefined) av = "";
+      if (bv === null || bv === undefined) bv = "";
+      if (typeof av === "string") av = av.toLowerCase();
+      if (typeof bv === "string") bv = bv.toLowerCase();
+      var cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      if (cmp === 0) cmp = a.i - b.i;
+      return state.dir === "asc" ? cmp : -cmp;
+    });
+    return indexed.map(function (x) { return x.r; });
+  }
+
+  function bindSortableTable(thead, state, onChange) {
+    if (!thead) return;
+    thead.querySelectorAll("[data-sort]").forEach(function (th) {
+      th.classList.add("sortable-th");
+      if (!th._sortBound) {
+        th._sortBound = true;
+        th.addEventListener("click", function () {
+          var key = th.getAttribute("data-sort");
+          if (state.key === key) { state.dir = state.dir === "asc" ? "desc" : "asc"; }
+          else { state.key = key; state.dir = "asc"; }
+          onChange();
+        });
+      }
+      th.classList.remove("sort-asc", "sort-desc");
+      if (th.getAttribute("data-sort") === state.key) th.classList.add(state.dir === "asc" ? "sort-asc" : "sort-desc");
+    });
+  }
+
+  /* ---------------- Month calendar ---------------- */
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  var DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  function renderMonthCalendar(container, opts) {
+    if (!container) return;
+    var year = opts.year, month = opts.month;
+    var first = new Date(year, month, 1);
+    var startWeekday = first.getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+    var monthLabel = first.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    var todayIso = D.isoDate(new Date());
+
+    var cells = [];
+    for (var i = 0; i < startWeekday; i++) cells.push('<div class="cal-cell empty"></div>');
+    for (var d = 1; d <= daysInMonth; d++) {
+      var dateIso = year + "-" + pad2(month + 1) + "-" + pad2(d);
+      var content = opts.getDayContent ? (opts.getDayContent(dateIso, d) || "") : "";
+      cells.push('<div class="cal-cell' + (dateIso === todayIso ? " today" : "") + '"><span class="cal-daynum">' + d + '</span>' + content + '</div>');
+    }
+
+    container.innerHTML =
+      '<div class="cal-header">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-cal-nav="prev">' + svg("arrowLeft") + '</button>' +
+        '<strong>' + monthLabel + '</strong>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-cal-nav="next">' + svg("arrowRight") + '</button>' +
+      '</div>' +
+      '<div class="cal-grid cal-dow">' + DOW_LABELS.map(function (x) { return '<div class="cal-dow-cell">' + x + '</div>'; }).join("") + '</div>' +
+      '<div class="cal-grid">' + cells.join("") + '</div>';
+
+    container.querySelector('[data-cal-nav="prev"]').addEventListener("click", function () {
+      var m = month - 1, y = year;
+      if (m < 0) { m = 11; y--; }
+      opts.onNav(y, m);
+    });
+    container.querySelector('[data-cal-nav="next"]').addEventListener("click", function () {
+      var m = month + 1, y = year;
+      if (m > 11) { m = 0; y++; }
+      opts.onNav(y, m);
+    });
+  }
 
   window.App = {
     isLoggedIn: isLoggedIn, login: login, logout: logout, requireAuth: requireAuth,
     getCurrentUser: getCurrentUser, getCurrentRole: getCurrentRole, isAdmin: isAdmin, can: can,
     guardPermission: guardPermission, guardAdminOnly: guardAdminOnly, applyRoleVisibility: applyRoleVisibility,
     renderShell: renderShell, tabsHtml: tabsHtml, svg: svg, icons: ICONS, initials: initials,
-    showToast: showToast, positionActionMenu: positionActionMenu
+    showToast: showToast, positionActionMenu: positionActionMenu,
+    paginate: paginate, renderPagination: renderPagination,
+    makeSortState: makeSortState, sortRows: sortRows, bindSortableTable: bindSortableTable,
+    renderMonthCalendar: renderMonthCalendar
   };
 })();

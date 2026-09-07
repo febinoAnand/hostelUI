@@ -23,16 +23,6 @@
         </div>
       </div>
 
-      <div class="panel" style="margin-bottom:18px; display:flex; align-items:center; gap:14px;">
-        <div class="stat-icon icon-indigo">
-          <span id="weekInfoIcon"></span>
-        </div>
-        <div>
-          <div class="stat-value" id="weekMealsValue">0</div>
-          <div class="stat-label">Meals served this week (<span id="weekRangeLabel"></span>)</div>
-        </div>
-      </div>
-
       <div class="menu-grid" id="menuGrid"></div>
     </main>
   </div>
@@ -71,14 +61,7 @@
   if (App.guardPermission("canteen", "read")) {
   App.renderShell({ active: "canteen-menu", title: "Weekly Menu", subtitle: "Meal plan for every day of the week" });
 
-  document.getElementById("weekInfoIcon").innerHTML = App.svg("mealTray");
   var canUpdate = App.can("canteen", "update");
-
-  function renderWeekInfo() {
-    var report = Business.getWeeklyCanteenReport();
-    document.getElementById("weekMealsValue").textContent = report.meals;
-    document.getElementById("weekRangeLabel").textContent = Data.displayDate(report.from) + " – " + Data.displayDate(report.to);
-  }
 
   function renderGrid() {
     var menu = Data.getCanteenMenu();
@@ -141,7 +124,6 @@
     renderGrid();
   });
 
-  renderWeekInfo();
   renderGrid();
   }
 </script>

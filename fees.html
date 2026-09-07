@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fees &amp; Payments · HostelHub</title>
+<title>Payments · HostelHub</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,25 +18,19 @@
     <main class="content">
       <div class="page-header-row">
         <div>
-          <h2>Fees &amp; Payments</h2>
+          <h2>Payments</h2>
           <p class="desc">Hostel-wide invoicing, collection and outstanding dues.</p>
+        </div>
+        <div class="page-header-actions">
+          <a class="btn btn-outline" href="fee-structure.html">View Fee Structures</a>
         </div>
       </div>
 
       <div class="stat-grid stat-grid-tight" id="statGrid"></div>
 
-      <div class="panel-grid even">
-        <div class="panel">
-          <div class="panel-header"><h3>Paid vs Due</h3></div>
-          <div id="feeDonut"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <h3>Fee Structures</h3>
-            <button class="btn btn-sm btn-primary" id="addStructureBtn" data-require="fees:create">+ Add Structure</button>
-          </div>
-          <div id="structureList"></div>
-        </div>
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-header"><h3>Paid vs Due</h3></div>
+        <div id="feeDonut"></div>
       </div>
 
       <div class="table-card">
@@ -52,6 +46,9 @@
               <option value="partial">Partial</option>
               <option value="pending">Pending</option>
             </select>
+            <label class="hint" style="align-self:center">Paid between</label>
+            <input type="date" class="select-filter" id="paidFrom">
+            <input type="date" class="select-filter" id="paidTo">
             <span class="toolbar-meta" id="toolbarMeta"></span>
           </div>
         </div>
@@ -59,12 +56,13 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Hosteller</th><th>Room</th><th>Invoiced</th><th>Paid</th><th>Due</th><th>Status</th><th></th>
+                <th data-sort="name">Hosteller</th><th data-sort="room">Room</th><th data-sort="invoiced">Invoiced</th><th data-sort="paid">Paid</th><th data-sort="due">Due</th><th data-sort="status">Status</th><th data-sort="lastPayment">Last Payment</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="table-pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -105,32 +103,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="structureModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h3>Add Fee Structure</h3>
-      <button class="modal-close" id="structureModalClose">&times;</button>
-    </div>
-    <div class="modal-body">
-      <form id="structureForm">
-        <div class="field-grid cols-3">
-          <div class="field span-2"><label>Structure Name *</label><input type="text" id="fsName" required></div>
-          <div class="field"><label>Academic Year *</label><input type="text" id="fsYear" required></div>
-          <div class="field"><label>Hostel Fee (₹) *</label><input type="number" id="fsHostel" min="0" value="0" required></div>
-          <div class="field"><label>Mess Fee (₹) *</label><input type="number" id="fsMess" min="0" value="0" required></div>
-          <div class="field"><label>Maintenance (₹) *</label><input type="number" id="fsMaintenance" min="0" value="0" required></div>
-          <div class="field"><label>Miscellaneous (₹) *</label><input type="number" id="fsMisc" min="0" value="0" required></div>
-          <div class="field span-2"><label>Total (auto-computed)</label><input type="text" id="fsTotal" disabled></div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" id="structureCancelBtn">Cancel</button>
-      <button class="btn btn-primary" id="structureSaveBtn">Save Structure</button>
-    </div>
-  </div>
-</div>
-
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -138,62 +110,72 @@
 <script>
   App.requireAuth();
   if (App.guardPermission("fees", "read")) {
-  App.renderShell({ active: "fees", title: "Fees & Payments", subtitle: "Hostel-wide invoicing and payment tracking" });
+  App.renderShell({ active: "fees", title: "Payments", subtitle: "Hostel-wide invoicing and payment tracking" });
 
   var canUpdate = App.can("fees", "update");
   var searchTerm = "", statusFilterVal = "";
+  var currentPage = 1;
+  var PAGE_SIZE = 10;
+  var sortState = App.makeSortState();
+  function lastPaymentOf(s) {
+    var payments = Business.getFeeSummary(s.id).ledger.filter(function (l) { return l.type === "payment"; }).sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+    return payments[0] || null;
+  }
 
   function render() {
     var stats = Business.getHostelFeeStats();
+    var totalHostellers = stats.paidCount + stats.partialCount + stats.unpaidCount;
     document.getElementById("statGrid").innerHTML =
       '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("receipt") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(stats.totalInvoiced) + '</div><div class="stat-label">Total invoiced</div></div></div>' +
       '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(stats.totalPaid) + '</div><div class="stat-label">Total collected</div></div></div>' +
       '<div class="stat-card accent-red"><div class="stat-icon icon-red">' + App.svg("alertTriangle") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(stats.totalDue) + '</div><div class="stat-label">Total due</div></div></div>' +
-      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("users") + '</div><div><div class="stat-value">' + stats.unpaidCount + '</div><div class="stat-label">Unpaid hostellers</div></div></div>';
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("checkCircle") + '</div><div><div class="stat-value">' + stats.paidCount + ' / ' + totalHostellers + '</div><div class="stat-label">Hostellers fully paid</div></div></div>';
 
     Charts.renderDonutChart(document.getElementById("feeDonut"), [
       { label: "Collected", value: stats.totalPaid, color: "#059669" },
       { label: "Due", value: stats.totalDue, color: "#dc2626" }
     ], { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
 
-    renderStructures();
     renderTable();
-  }
-
-  function renderStructures() {
-    var structures = Data.getFeeStructures();
-    document.getElementById("structureList").innerHTML = structures.map(function (fs) {
-      return '<div class="detail-card" style="margin-bottom:12px">' +
-        '<div class="detail-card-header">' + fs.name + ' <span class="chip chip-indigo" style="float:right">' + fs.year + '</span></div>' +
-        '<div class="detail-rows">' +
-        '<div class="detail-row"><span>Hostel</span><strong>₹' + fs.components.hostel.toLocaleString("en-IN") + '</strong></div>' +
-        '<div class="detail-row"><span>Mess</span><strong>₹' + fs.components.mess.toLocaleString("en-IN") + '</strong></div>' +
-        '<div class="detail-row"><span>Maintenance</span><strong>₹' + fs.components.maintenance.toLocaleString("en-IN") + '</strong></div>' +
-        '<div class="detail-row"><span>Miscellaneous</span><strong>₹' + fs.components.misc.toLocaleString("en-IN") + '</strong></div>' +
-        '<div class="detail-row"><span>Total</span><strong>₹' + fs.total.toLocaleString("en-IN") + '</strong></div>' +
-        '</div></div>';
-    }).join("");
   }
 
   function renderTable() {
     var students = Data.getStudents().filter(function (s) { return s.status === "active"; });
     var rooms = Data.getRooms();
     var q = searchTerm.toLowerCase();
+    var paidFrom = document.getElementById("paidFrom").value;
+    var paidTo = document.getElementById("paidTo").value;
     var filtered = students.filter(function (s) {
       var summary = Business.getFeeSummary(s.id);
       var matchesSearch = !q || s.name.toLowerCase().indexOf(q) > -1;
       var matchesStatus = !statusFilterVal || summary.status === statusFilterVal;
-      return matchesSearch && matchesStatus;
+      var matchesPaidRange = true;
+      if (paidFrom || paidTo) {
+        var payments = summary.ledger.filter(function (l) { return l.type === "payment"; });
+        matchesPaidRange = payments.some(function (p) { return (!paidFrom || p.date >= paidFrom) && (!paidTo || p.date <= paidTo); });
+      }
+      return matchesSearch && matchesStatus && matchesPaidRange;
+    });
+    filtered = App.sortRows(filtered, sortState, {
+      name: function (s) { return s.name; },
+      room: function (s) { var r = rooms.find(function (x) { return x.id === s.roomId; }); return r ? r.roomNumber : ""; },
+      invoiced: function (s) { return Business.getFeeSummary(s.id).invoiced; },
+      paid: function (s) { return Business.getFeeSummary(s.id).paid; },
+      due: function (s) { return Business.getFeeSummary(s.id).due; },
+      status: function (s) { return Business.getFeeSummary(s.id).status; },
+      lastPayment: function (s) { var p = lastPaymentOf(s); return p ? p.date : ""; }
     });
     document.getElementById("toolbarMeta").textContent = filtered.length + " of " + students.length + " hostellers";
 
     var tbody = document.getElementById("tableBody");
+    var pageItems = App.paginate(filtered, currentPage, PAGE_SIZE);
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("receipt") + '<p>No hostellers found.</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state compact">' + App.svg("receipt") + '<p>No hostellers found.</p></div></td></tr>';
     } else {
-      tbody.innerHTML = filtered.map(function (s) {
+      tbody.innerHTML = pageItems.map(function (s) {
         var room = rooms.find(function (r) { return r.id === s.roomId; });
         var summary = Business.getFeeSummary(s.id);
+        var lastPayment = lastPaymentOf(s);
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + App.initials(s.name) + '</div><div><strong>' + s.name + '</strong></div></div></td>' +
           '<td>' + (room ? '<span class="chip chip-indigo">' + room.roomNumber + '</span>' : '<span class="chip chip-slate">Unassigned</span>') + '</td>' +
@@ -201,14 +183,27 @@
           '<td class="num">₹' + summary.paid.toLocaleString("en-IN") + '</td>' +
           '<td class="num-strong">₹' + summary.due.toLocaleString("en-IN") + '</td>' +
           '<td><span class="status-pill ' + summary.status + '">' + summary.status + '</span></td>' +
-          '<td class="row-actions">' + (canUpdate ? '<button class="btn btn-sm btn-primary" data-pay="' + s.id + '">Record Payment</button>' : '-') + '</td>' +
+          '<td>' + (lastPayment ? Data.displayDate(lastPayment.date) + ' · ₹' + lastPayment.amount.toLocaleString("en-IN") : '-') + '</td>' +
+          '<td class="row-actions">' +
+            '<a class="btn btn-sm btn-outline" href="invoice.html?id=' + s.id + '" style="margin-right:6px">' + App.svg("fileText") + ' Invoice</a>' +
+            (canUpdate ? '<button class="btn btn-sm btn-primary" data-pay="' + s.id + '">Record Payment</button>' : '') +
+          '</td>' +
         '</tr>';
       }).join("");
     }
+
+    currentPage = App.renderPagination(document.getElementById("pagination"), {
+      page: currentPage, pageSize: PAGE_SIZE, total: filtered.length,
+      onChange: function (p) { currentPage = p; renderTable(); }
+    });
+
+    App.bindSortableTable(tbody.closest("table").tHead, sortState, function () { currentPage = 1; renderTable(); });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; renderTable(); });
-  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; renderTable(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; currentPage = 1; renderTable(); });
+  document.getElementById("statusFilter").addEventListener("change", function (e) { statusFilterVal = e.target.value; currentPage = 1; renderTable(); });
+  document.getElementById("paidFrom").addEventListener("change", function () { currentPage = 1; renderTable(); });
+  document.getElementById("paidTo").addEventListener("change", function () { currentPage = 1; renderTable(); });
 
   /* ---------------- Payment modal ---------------- */
   var payModal = document.getElementById("payModal");
@@ -247,52 +242,6 @@
     Data.saveFeeLedger(ledger);
     App.showToast("Payment recorded.");
     closePayModal();
-    render();
-  });
-
-  /* ---------------- Fee structure modal ---------------- */
-  var structureModal = document.getElementById("structureModal");
-  function recomputeStructureTotal() {
-    var h = parseFloat(document.getElementById("fsHostel").value) || 0;
-    var m = parseFloat(document.getElementById("fsMess").value) || 0;
-    var mt = parseFloat(document.getElementById("fsMaintenance").value) || 0;
-    var mi = parseFloat(document.getElementById("fsMisc").value) || 0;
-    document.getElementById("fsTotal").value = "₹" + (h + m + mt + mi).toLocaleString("en-IN");
-    return h + m + mt + mi;
-  }
-  ["fsHostel", "fsMess", "fsMaintenance", "fsMisc"].forEach(function (id) {
-    document.getElementById(id).addEventListener("input", recomputeStructureTotal);
-  });
-  function openStructureModal() {
-    document.getElementById("structureForm").reset();
-    document.getElementById("fsYear").value = "2026-27";
-    recomputeStructureTotal();
-    structureModal.classList.add("show");
-  }
-  function closeStructureModal() { structureModal.classList.remove("show"); }
-  document.getElementById("addStructureBtn").addEventListener("click", openStructureModal);
-  document.getElementById("structureModalClose").addEventListener("click", closeStructureModal);
-  document.getElementById("structureCancelBtn").addEventListener("click", closeStructureModal);
-  structureModal.addEventListener("click", function (e) { if (e.target === structureModal) closeStructureModal(); });
-
-  document.getElementById("structureSaveBtn").addEventListener("click", function () {
-    var form = document.getElementById("structureForm");
-    if (!form.checkValidity()) { form.reportValidity(); return; }
-    var total = recomputeStructureTotal();
-    var structures = Data.getFeeStructures();
-    structures.push({
-      id: Data.uid("fs"), name: document.getElementById("fsName").value.trim(), year: document.getElementById("fsYear").value.trim(),
-      components: {
-        hostel: parseFloat(document.getElementById("fsHostel").value) || 0,
-        mess: parseFloat(document.getElementById("fsMess").value) || 0,
-        maintenance: parseFloat(document.getElementById("fsMaintenance").value) || 0,
-        misc: parseFloat(document.getElementById("fsMisc").value) || 0
-      },
-      total: total
-    });
-    Data.saveFeeStructures(structures);
-    App.showToast("Fee structure added.");
-    closeStructureModal();
     render();
   });
 

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fee Structure · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Fee Structure</h2>
+          <p class="desc">Define the fee packages used to invoice hostellers.</p>
+        </div>
+        <div class="page-header-actions">
+          <a class="btn btn-outline" href="fees.html">&larr; Back to Payments</a>
+          <button class="btn btn-primary" id="addStructureBtn" data-require="fees:create">+ Add Structure</button>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="detail-grid" id="structureGrid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="structureModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="structureModalTitle">Add Fee Structure</h3>
+      <button class="modal-close" id="structureModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="structureForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid cols-3">
+          <div class="field span-2"><label>Structure Name *</label><input type="text" id="fsName" required></div>
+          <div class="field"><label>Academic Year *</label><input type="text" id="fsYear" required></div>
+          <div class="field"><label>Hostel Fee (₹) *</label><input type="number" id="fsHostel" min="0" value="0" required></div>
+          <div class="field"><label>Mess Fee (₹) *</label><input type="number" id="fsMess" min="0" value="0" required></div>
+          <div class="field"><label>Maintenance (₹) *</label><input type="number" id="fsMaintenance" min="0" value="0" required></div>
+          <div class="field"><label>Miscellaneous (₹) *</label><input type="number" id="fsMisc" min="0" value="0" required></div>
+          <div class="field span-2"><label>Total (auto-computed)</label><input type="text" id="fsTotal" disabled></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="structureCancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="structureSaveBtn">Save Structure</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("fees", "read")) {
+  App.renderShell({ active: "fee-structure", title: "Fee Structure", subtitle: "Fee packages used to invoice hostellers" });
+
+  var canUpdate = App.can("fees", "update");
+  var canDelete = App.can("fees", "delete");
+
+  function render() {
+    var structures = Data.getFeeStructures();
+    var totals = structures.map(function (fs) { return fs.total; });
+    var avg = totals.length ? Math.round(totals.reduce(function (a, v) { return a + v; }, 0) / totals.length) : 0;
+    var highest = totals.length ? Math.max.apply(null, totals) : 0;
+    var lowest = totals.length ? Math.min.apply(null, totals) : 0;
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-indigo">' + App.svg("fileText") + '</div><div><div class="stat-value">' + structures.length + '</div><div class="stat-label">Fee structures</div></div></div>' +
+      '<div class="stat-card accent-cyan"><div class="stat-icon icon-cyan">' + App.svg("receipt") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(avg) + '</div><div class="stat-label">Average total fee</div></div></div>' +
+      '<div class="stat-card accent-green"><div class="stat-icon icon-green">' + App.svg("trendingUp") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(highest) + '</div><div class="stat-label">Highest fee package</div></div></div>' +
+      '<div class="stat-card accent-amber"><div class="stat-icon icon-amber">' + App.svg("wallet") + '</div><div><div class="stat-value">₹' + Charts.fmtCompact(lowest) + '</div><div class="stat-label">Lowest fee package</div></div></div>';
+
+    var grid = document.getElementById("structureGrid");
+    if (!structures.length) {
+      grid.innerHTML = '<div class="detail-card" style="grid-column:1/-1"><div class="empty-state">' + App.svg("fileText") + '<p>No fee structures yet. Add one to start invoicing hostellers.</p></div></div>';
+    } else {
+      grid.innerHTML = structures.map(function (fs) {
+        return '<div class="detail-card">' +
+          '<div class="detail-card-header" style="display:flex;align-items:center;justify-content:space-between">' +
+            '<span>' + fs.name + ' <span class="chip chip-indigo">' + fs.year + '</span></span>' +
+            '<span style="display:flex;gap:4px">' +
+              (canUpdate ? '<button class="action-trigger" data-edit="' + fs.id + '" title="Edit">' + App.svg("edit") + '</button>' : "") +
+              (canDelete ? '<button class="action-trigger" data-del="' + fs.id + '" title="Delete">' + App.svg("trash") + '</button>' : "") +
+            '</span>' +
+          '</div>' +
+          '<div class="detail-rows">' +
+          '<div class="detail-row"><span>Hostel</span><strong>₹' + fs.components.hostel.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Mess</span><strong>₹' + fs.components.mess.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Maintenance</span><strong>₹' + fs.components.maintenance.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Miscellaneous</span><strong>₹' + fs.components.misc.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="detail-row"><span>Total</span><strong>₹' + fs.total.toLocaleString("en-IN") + '</strong></div>' +
+          '</div></div>';
+      }).join("");
+    }
+  }
+
+  /* ---------------- Add / Edit Fee Structure modal ---------------- */
+  var structureModal = document.getElementById("structureModal");
+  function recomputeStructureTotal() {
+    var h = parseFloat(document.getElementById("fsHostel").value) || 0;
+    var m = parseFloat(document.getElementById("fsMess").value) || 0;
+    var mt = parseFloat(document.getElementById("fsMaintenance").value) || 0;
+    var mi = parseFloat(document.getElementById("fsMisc").value) || 0;
+    document.getElementById("fsTotal").value = "₹" + (h + m + mt + mi).toLocaleString("en-IN");
+    return h + m + mt + mi;
+  }
+  ["fsHostel", "fsMess", "fsMaintenance", "fsMisc"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", recomputeStructureTotal);
+  });
+
+  function openStructureModal(id) {
+    document.getElementById("structureForm").reset();
+    document.getElementById("editId").value = "";
+    document.getElementById("fsYear").value = "2026-27";
+
+    if (id) {
+      var fs = Data.getFeeStructures().find(function (x) { return x.id === id; });
+      if (!fs) return;
+      document.getElementById("structureModalTitle").textContent = "Edit Fee Structure";
+      document.getElementById("editId").value = fs.id;
+      document.getElementById("fsName").value = fs.name;
+      document.getElementById("fsYear").value = fs.year;
+      document.getElementById("fsHostel").value = fs.components.hostel;
+      document.getElementById("fsMess").value = fs.components.mess;
+      document.getElementById("fsMaintenance").value = fs.components.maintenance;
+      document.getElementById("fsMisc").value = fs.components.misc;
+    } else {
+      document.getElementById("structureModalTitle").textContent = "Add Fee Structure";
+    }
+    recomputeStructureTotal();
+    structureModal.classList.add("show");
+  }
+  function closeStructureModal() { structureModal.classList.remove("show"); }
+  document.getElementById("addStructureBtn").addEventListener("click", function () { openStructureModal(null); });
+  document.getElementById("structureModalClose").addEventListener("click", closeStructureModal);
+  document.getElementById("structureCancelBtn").addEventListener("click", closeStructureModal);
+  structureModal.addEventListener("click", function (e) { if (e.target === structureModal) closeStructureModal(); });
+
+  document.getElementById("structureSaveBtn").addEventListener("click", function () {
+    var form = document.getElementById("structureForm");
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    var id = document.getElementById("editId").value;
+    var total = recomputeStructureTotal();
+    var record = {
+      id: id || Data.uid("fs"),
+      name: document.getElementById("fsName").value.trim(),
+      year: document.getElementById("fsYear").value.trim(),
+      components: {
+        hostel: parseFloat(document.getElementById("fsHostel").value) || 0,
+        mess: parseFloat(document.getElementById("fsMess").value) || 0,
+        maintenance: parseFloat(document.getElementById("fsMaintenance").value) || 0,
+        misc: parseFloat(document.getElementById("fsMisc").value) || 0
+      },
+      total: total
+    };
+    var structures = Data.getFeeStructures();
+    if (id) {
+      structures = structures.map(function (fs) { return fs.id === id ? record : fs; });
+    } else {
+      structures = structures.concat([record]);
+    }
+    Data.saveFeeStructures(structures);
+    App.showToast(id ? "Fee structure updated." : "Fee structure added.");
+    closeStructureModal();
+    render();
+  });
+
+  document.getElementById("structureGrid").addEventListener("click", function (e) {
+    var editBtn = e.target.closest("[data-edit]");
+    var delBtn = e.target.closest("[data-del]");
+    if (editBtn) { openStructureModal(editBtn.getAttribute("data-edit")); }
+    if (delBtn) {
+      var id = delBtn.getAttribute("data-del");
+      if (confirm("Delete this fee structure? Hostellers already invoiced under it keep their existing records.")) {
+        Data.saveFeeStructures(Data.getFeeStructures().filter(function (x) { return x.id !== id; }));
+        App.showToast("Fee structure deleted.");
+        render();
+      }
+    }
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>
