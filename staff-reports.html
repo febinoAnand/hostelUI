@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Reports · HostelHub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Staff Reports</h2>
+          <p class="desc">Salary and attendance history across all staff.</p>
+        </div>
+      </div>
+
+      <div class="page-header-row" style="margin-bottom:16px;">
+        <div class="toolbar-filters">
+          <label class="hint" style="align-self:center">From</label>
+          <input type="date" class="select-filter" id="reportFrom">
+          <label class="hint" style="align-self:center">To</label>
+          <input type="date" class="select-filter" id="reportTo">
+          <button type="button" class="btn btn-outline btn-sm" data-menu-toggle="quickRange">Quick Select &#9662;</button>
+          <div class="action-menu" data-menu="quickRange">
+            <button type="button" data-quick="week">This Week</button>
+            <button type="button" data-quick="month">This Month</button>
+          </div>
+          <span class="toolbar-meta" id="periodMeta"></span>
+        </div>
+      </div>
+
+      <div class="stat-grid stat-grid-tight" id="statGrid"></div>
+
+      <div class="panel-grid charts-grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Daily Staff Present</h3></div>
+          <div id="dailyPresentChart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Salary Status (This Period)</h3></div>
+          <div id="salaryStatusChart"></div>
+        </div>
+      </div>
+
+      <div class="panel-header" style="margin:0 0 10px"><h3>Salary Log</h3></div>
+      <div class="table-card" style="margin-bottom:24px">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="month">Month</th><th class="num" data-sort="amount">Amount</th><th data-sort="status">Status</th><th data-sort="paidDate">Paid Date</th></tr>
+            </thead>
+            <tbody id="salaryBody"></tbody>
+          </table>
+        </div>
+        <div class="table-pagination" id="salaryPagination"></div>
+      </div>
+
+      <div class="panel-header" style="margin:0 0 10px"><h3>Attendance Log</h3></div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="date">Date</th><th data-sort="status">Status</th><th data-sort="inTime">In Time</th><th data-sort="reason">Reason</th></tr>
+            </thead>
+            <tbody id="attBody"></tbody>
+          </table>
+        </div>
+        <div class="table-pagination" id="attPagination"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  if (App.guardPermission("staff", "read")) {
+  App.renderShell({ active: "staff-reports", title: "Staff Reports", subtitle: "Salary and attendance history across all staff" });
+
+  var salaryPage = 1, attPage = 1;
+  var PAGE_SIZE = 10;
+  var salarySort = App.makeSortState();
+  var attSort = App.makeSortState();
+  var fromInput = document.getElementById("reportFrom");
+  var toInput = document.getElementById("reportTo");
+
+  fromInput.value = Data.isoDate(Data.addDays(Data.today(), -6));
+  toInput.value = Data.isoDate(Data.today());
+
+  function getRange() {
+    var today = Data.isoDate(Data.today());
+    var from = fromInput.value || today;
+    var to = toInput.value || today;
+    if (from > to) { var tmp = from; from = to; to = tmp; }
+    return { from: from, to: to };
+  }
+
+  function statCard(icon, iconCls, accentCls, value, label) {
+    return '<div class="stat-card ' + accentCls + '"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
+      '<div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div></div>';
+  }
+
+  function render() {
+    var range = getRange();
+    var monthFrom = range.from.slice(0, 7), monthTo = range.to.slice(0, 7);
+    var spanDays = Math.round((new Date(range.to) - new Date(range.from)) / 86400000) + 1;
+    document.getElementById("periodMeta").textContent = spanDays + " day" + (spanDays === 1 ? "" : "s") + " selected";
+
+    var staff = Data.getStaff();
+    var staffById = {};
+    staff.forEach(function (s) { staffById[s.id] = s; });
+
+    var salaryInRange = Data.getStaffSalary().filter(function (r) { return r.month >= monthFrom && r.month <= monthTo; });
+    var attInRange = Data.getStaffAttendance().filter(function (a) { return a.date >= range.from && a.date <= range.to; });
+
+    /* ---------------- Stat cards ---------------- */
+    var paidInRange = salaryInRange.filter(function (r) { return r.status === "paid"; }).reduce(function (a, r) { return a + r.amount; }, 0);
+    var totalPending = Business.getPendingSalaryTotal();
+    var presentCount = attInRange.filter(function (a) { return a.status === "present"; }).length;
+    var absentCount = attInRange.filter(function (a) { return a.status === "absent"; }).length;
+    var attendancePct = (presentCount + absentCount) ? Math.round((presentCount / (presentCount + absentCount)) * 100) : 0;
+
+    document.getElementById("statGrid").innerHTML =
+      statCard("wallet", "icon-green", "accent-green", "₹" + Charts.fmtCompact(paidInRange), "Salary paid (this period)") +
+      statCard("coins", "icon-amber", "accent-amber", "₹" + Charts.fmtCompact(totalPending), "Salary pending (overall)") +
+      statCard("checkCircle", "icon-indigo", "", attendancePct + "%", "Attendance rate (this period)") +
+      statCard("calendar", "icon-violet", "accent-violet", Data.displayDate(range.from) + " – " + Data.displayDate(range.to), "Report period");
+
+    /* ---------------- Bar chart: daily present-staff count ---------------- */
+    var days = [];
+    for (var d = 0; d < spanDays; d++) {
+      var date = Data.isoDate(Data.addDays(new Date(range.from), d));
+      var count = attInRange.filter(function (a) { return a.date === date && a.status === "present"; }).length;
+      days.push({ label: date.slice(8, 10) + "/" + date.slice(5, 7), value: count });
+    }
+    Charts.renderBarChart(document.getElementById("dailyPresentChart"), days, { formatValue: function (v) { return v + ""; } });
+
+    /* ---------------- Donut chart: salary status breakdown ---------------- */
+    var pendingInRange = salaryInRange.filter(function (r) { return r.status === "pending"; }).reduce(function (a, r) { return a + r.amount; }, 0);
+    var donutItems = [];
+    if (paidInRange) donutItems.push({ label: "Paid", value: paidInRange });
+    if (pendingInRange) donutItems.push({ label: "Pending", value: pendingInRange });
+    Charts.renderDonutChart(document.getElementById("salaryStatusChart"), donutItems, { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); }, centerLabel: "Salary" });
+
+    /* ---------------- Salary Log table ---------------- */
+    var salarySorted = App.sortRows(salaryInRange.slice(), salarySort, {
+      name: function (r) { var s = staffById[r.staffId]; return s ? s.name : ""; },
+      designation: function (r) { var s = staffById[r.staffId]; return s ? s.designation : ""; },
+      month: function (r) { return r.month; },
+      amount: function (r) { return r.amount; },
+      status: function (r) { return r.status; },
+      paidDate: function (r) { return r.paidDate || ""; }
+    });
+    var salaryBody = document.getElementById("salaryBody");
+    var salaryPageItems = App.paginate(salarySorted, salaryPage, PAGE_SIZE);
+    if (!salarySorted.length) {
+      salaryBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("wallet") + '<p>No salary records in this period.</p></div></td></tr>';
+    } else {
+      salaryBody.innerHTML = salaryPageItems.map(function (r) {
+        var s = staffById[r.staffId];
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong></div></div></td>' +
+          '<td>' + (s ? '<span class="chip chip-indigo">' + s.designation + '</span>' : "-") + '</td>' +
+          '<td>' + r.month + '</td>' +
+          '<td class="num num-strong">₹' + r.amount.toLocaleString("en-IN") + '</td>' +
+          '<td><span class="status-pill ' + r.status + '">' + r.status + '</span></td>' +
+          '<td>' + (r.paidDate ? Data.displayDate(r.paidDate) : "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+    salaryPage = App.renderPagination(document.getElementById("salaryPagination"), {
+      page: salaryPage, pageSize: PAGE_SIZE, total: salarySorted.length,
+      onChange: function (p) { salaryPage = p; render(); }
+    });
+    App.bindSortableTable(salaryBody.closest("table").tHead, salarySort, function () { salaryPage = 1; render(); });
+
+    /* ---------------- Attendance Log table ---------------- */
+    var attSorted = App.sortRows(attInRange.slice(), attSort, {
+      name: function (a) { var s = staffById[a.staffId]; return s ? s.name : ""; },
+      designation: function (a) { var s = staffById[a.staffId]; return s ? s.designation : ""; },
+      date: function (a) { return a.date; },
+      status: function (a) { return a.status; },
+      inTime: function (a) { return a.inTime || ""; },
+      reason: function (a) { return a.reason || ""; }
+    });
+    var attBody = document.getElementById("attBody");
+    var attPageItems = App.paginate(attSorted, attPage, PAGE_SIZE);
+    if (!attSorted.length) {
+      attBody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("inout") + '<p>No attendance records in this period.</p></div></td></tr>';
+    } else {
+      attBody.innerHTML = attPageItems.map(function (a) {
+        var s = staffById[a.staffId];
+        var statusLabel = a.status === "present" ? "Present" : "Absent";
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + (s ? App.initials(s.name) : "?") + '</div><div><strong>' + (s ? s.name : "Unknown") + '</strong></div></div></td>' +
+          '<td>' + (s ? '<span class="chip chip-indigo">' + s.designation + '</span>' : "-") + '</td>' +
+          '<td>' + Data.displayDate(a.date) + '</td>' +
+          '<td><span class="status-pill ' + a.status + '">' + statusLabel + '</span></td>' +
+          '<td>' + (a.inTime || "-") + '</td>' +
+          '<td>' + (a.reason || "-") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+    attPage = App.renderPagination(document.getElementById("attPagination"), {
+      page: attPage, pageSize: PAGE_SIZE, total: attSorted.length,
+      onChange: function (p) { attPage = p; render(); }
+    });
+    App.bindSortableTable(attBody.closest("table").tHead, attSort, function () { attPage = 1; render(); });
+  }
+
+  [fromInput, toInput].forEach(function (input) {
+    input.addEventListener("change", function () { salaryPage = 1; attPage = 1; render(); });
+  });
+
+  document.querySelectorAll('[data-menu="quickRange"] [data-quick]').forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var mode = btn.getAttribute("data-quick");
+      toInput.value = Data.isoDate(Data.today());
+      fromInput.value = Data.isoDate(Data.addDays(Data.today(), mode === "week" ? -6 : -29));
+      salaryPage = 1; attPage = 1;
+      render();
+    });
+  });
+
+  render();
+  }
+</script>
+</body>
+</html>
