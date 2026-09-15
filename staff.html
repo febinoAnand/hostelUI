@@ -50,7 +50,7 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="phone">Phone</th><th data-sort="joinDate">Join Date</th><th data-sort="salary">Monthly Salary</th><th data-sort="status">Status</th><th></th>
+                <th data-sort="name">Staff</th><th data-sort="designation">Designation</th><th data-sort="phone">Phone</th><th data-sort="joinDate">Join Date</th><th class="num" data-sort="salary">Monthly Salary</th><th data-sort="status">Status</th><th></th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
@@ -148,7 +148,7 @@
           '<td><span class="chip chip-indigo">' + s.designation + '</span></td>' +
           '<td class="cell-mono">' + s.phone + '</td>' +
           '<td>' + Data.displayDate(s.joinDate) + '</td>' +
-          '<td>₹' + s.salaryPerMonth.toLocaleString("en-IN") + '</td>' +
+          '<td class="num num-strong">₹' + s.salaryPerMonth.toLocaleString("en-IN") + '</td>' +
           '<td><span class="status-pill ' + (s.isActive ? "active" : "inactive") + '">' + (s.isActive ? "active" : "inactive") + '</span></td>' +
           '<td class="row-actions">' +
             '<button class="action-trigger" data-menu-toggle="' + s.id + '">' + App.svg("dots") + '</button>' +
