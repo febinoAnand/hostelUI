@@ -171,7 +171,7 @@
       var page = ebPageByBlock[block] || 1;
       var pageItems = App.paginate(roomRows, page, EB_PAGE_SIZE);
       var rowsHtml = pageItems.map(function (x) {
-        return '<tr><td>' + x.room.roomNumber + '</td><td>' + x.occupants + '</td><td class="num num-strong">₹' + x.share.toLocaleString("en-IN") + '</td></tr>';
+        return '<tr><td>' + x.room.roomNumber + '</td><td class="num">' + x.occupants + '</td><td class="num num-strong">₹' + x.share.toLocaleString("en-IN") + '</td></tr>';
       }).join("");
 
       return '<div class="panel" style="margin-bottom:16px;">' + headerHtml +
@@ -180,7 +180,7 @@
           '<div class="detail-row"><span>Rate / Unit</span><strong>₹' + res.bill.ratePerUnit + '</strong></div>' +
           '<div class="detail-row"><span>Total Amount</span><strong>₹' + res.bill.totalAmount.toLocaleString("en-IN") + '</strong></div>' +
         '</div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr>' + ebSortTh("room", "Room") + ebSortTh("occupants", "Occupants") + ebSortTh("share", "Share", "num") + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr>' + ebSortTh("room", "Room") + ebSortTh("occupants", "Occupants", "num") + ebSortTh("share", "Share", "num") + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
         '<div class="table-pagination" data-eb-pagination="' + block + '"></div>' +
       '</div>';
     }).join("");
